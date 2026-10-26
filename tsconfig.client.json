@@ -113,7 +113,7 @@
     { "path": "./packages/client/ui-approval" },
     { "path": "./packages/client/ui-chat/tsconfig.client.json" },
     { "path": "./packages/client/ui-git-branch" },
-    { "path": "./packages/client/ui-git-commit-guard" },
+    { "path": "./packages/client/ui-git-push-guard" },
     { "path": "./packages/client/ui-conversation/tsconfig.client.json" },
     { "path": "./packages/client/ui-tool" },
     { "path": "./packages/client/ui-deliverables/tsconfig.client.json" },

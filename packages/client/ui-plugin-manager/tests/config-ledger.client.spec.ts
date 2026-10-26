@@ -61,10 +61,10 @@ describe('configLedgerSource', () => {
     b.register('plugins.bundle.config', { key: 'dsh-x' })
     b.register('plugins.row.config', { key: rowConfigKey('dsh-x', 'row') })
 
-    b.register('plugins.shiguredo', { id: 'git-commit-guard', label: 'Commit guard' })
+    b.register('plugins.shiguredo', { id: 'git-push-guard', label: 'Push guard' })
     expect(source.getSnapshot()).toEqual({
       items: [{ id: 'bash', label: 'Shell' }, { id: 'loop', label: 'Agent loop' }],
-      shiguredo: [{ id: 'git-commit-guard', label: 'Commit guard' }],
+      shiguredo: [{ id: 'git-push-guard', label: 'Push guard' }],
       bundles: new Set(['dsh-x']),
       rows: new Set(['dsh-x#row']),
     })

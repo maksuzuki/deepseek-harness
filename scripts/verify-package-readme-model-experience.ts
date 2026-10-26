@@ -144,7 +144,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/client/ui-message-feedback': { kind: 'none', reason: 'Browser-side controls over log-only message feedback; ratings and notes never enter model context or change model-input tokens.' },
   'packages/client/ui-tool': { kind: 'none', reason: 'Browser-side Tool presentation layer; renders logged calls without changing model context.' },
   'packages/client/ui-git-branch': { kind: 'none', reason: 'Browser-side chip over the workspaceGit Remote namespace; registers nothing model-facing.' },
-  'packages/client/ui-git-commit-guard': { kind: 'none', reason: 'Browser-side guard controls over the Host same-origin state route; dsh-git-commit-guard owns the prompt section, the question, and the denial text.' },
+  'packages/client/ui-git-push-guard': { kind: 'none', reason: 'Browser-side guard controls over the Host same-origin state route; dsh-git-push-guard owns the prompt section, the question, and the denial text.' },
   'packages/client/ui-schedule': { kind: 'none', reason: 'Browser-side catalog, editing, and deletion of Host Schedule records; dsh-schedule owns storage and delivery, and dsh-tool-schedule contributes the model-facing tools in a preset that mounts it.' },
   'packages/client/ui-workflow-run': { kind: 'none', reason: 'Browser-side UI plugin layer; renders durable workflow records without changing model context.' },
   'packages/client/ui-input-trigger': { kind: 'none', reason: 'Browser-side UI plugin layer; registers nothing model-facing.' },

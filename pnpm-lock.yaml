@@ -3040,9 +3040,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-git-branch':
         specifier: workspace:*
         version: link:../../client/ui-git-branch
-      '@deepseek-ai/dsh-client-ui-git-commit-guard':
+      '@deepseek-ai/dsh-client-ui-git-push-guard':
         specifier: workspace:*
-        version: link:../../client/ui-git-commit-guard
+        version: link:../../client/ui-git-push-guard
       '@deepseek-ai/dsh-client-ui-goal':
         specifier: workspace:*
         version: link:../../client/ui-goal
@@ -3199,9 +3199,9 @@ importers:
       '@deepseek-ai/dsh-file-reference-local':
         specifier: workspace:*
         version: link:../../context/file-reference-local
-      '@deepseek-ai/dsh-git-commit-guard':
+      '@deepseek-ai/dsh-git-push-guard':
         specifier: workspace:*
-        version: link:../../guard/git-commit-guard
+        version: link:../../guard/git-push-guard
       '@deepseek-ai/dsh-harness-dev-context':
         specifier: workspace:*
         version: link:../../context/harness-dev-context
@@ -4554,7 +4554,7 @@ importers:
         specifier: ^18.2.0
         version: 18.3.1(react@18.3.1)
 
-  packages/client/ui-git-commit-guard:
+  packages/client/ui-git-push-guard:
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:~
@@ -11834,7 +11834,7 @@ importers:
         specifier: workspace:*
         version: link:../../core/tools
 
-  packages/guard/git-commit-guard:
+  packages/guard/git-push-guard:
     dependencies:
       '@deepseek-ai/dsh-home-paths':
         specifier: workspace:*
@@ -11846,15 +11846,39 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:~
         version: link:../../../vendor/cordis
+      '@deepseek-ai/cordis-plugin-include':
+        specifier: workspace:~
+        version: link:../../../vendor/include
+      '@deepseek-ai/cordis-plugin-loader':
+        specifier: workspace:~
+        version: link:../../../vendor/loader
       '@deepseek-ai/dsh-agent':
         specifier: workspace:*
         version: link:../../core/agent
+      '@deepseek-ai/dsh-agent-loop-testkit':
+        specifier: workspace:*
+        version: link:../../test-support/agent-loop-testkit
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:*
         version: link:../../host/webserver
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:*
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:*
+        version: link:../../core/session
+      '@deepseek-ai/dsh-session-projection':
+        specifier: workspace:*
+        version: link:../../session/session-projection
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:*
         version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tool-executor-native':
+        specifier: workspace:*
+        version: link:../../core/tool-executor-native
+      '@deepseek-ai/dsh-tool-testkit':
+        specifier: workspace:*
+        version: link:../../test-support/tool-testkit
       '@deepseek-ai/dsh-tools':
         specifier: workspace:*
         version: link:../../core/tools

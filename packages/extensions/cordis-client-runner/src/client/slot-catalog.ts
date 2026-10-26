@@ -1297,7 +1297,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     slotInject: '',
     declaredBy: 'an entry in \'conversation.composer.bar\' (client-ui-conversation), so it exists while that entry is mounted',
     occupants: [
-      'client-ui-git-commit-guard GuardChip',
+      'client-ui-git-push-guard GuardChip',
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.input.left\', () => ctx.slots.register(\n      { name: \'conversation.input.left\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
@@ -2866,7 +2866,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     slotInject: '',
     declaredBy: 'an entry in \'main\' (client-ui-plugin-manager), so it exists while that entry is mounted',
     occupants: [
-      'client-ui-git-commit-guard GuardSettingsCard',
+      'client-ui-git-push-guard GuardSettingsCard',
       'client-ui-settings-web-search-ollama OllamaSearchCard id \'web-ollama-api\'',
     ],
     replaceRisk: 'none',

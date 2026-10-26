@@ -1500,24 +1500,24 @@ export type Config = LocalConfig
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-fs-sandbox -->
 
-<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-git-commit-guard -->
-<a id="deepseek-aidsh-git-commit-guard"></a>
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-git-push-guard -->
+<a id="deepseek-aidsh-git-push-guard"></a>
 
-## `@deepseek-ai/dsh-git-commit-guard`
+## `@deepseek-ai/dsh-git-push-guard`
 
 - `inject`: `webServer` · `connection` · `tools` · `systemPrompt` · `userQuestions`
-- `source`: [`packages/guard/git-commit-guard/src/index.ts:40`](../packages/guard/git-commit-guard/src/index.ts)
+- `source`: [`packages/guard/git-push-guard/src/index.ts:40`](../packages/guard/git-push-guard/src/index.ts)
 
 ```ts config-catalog
 /** Plugin configuration. */
 export interface Config {
-  /** Absolute state file path; defaults to `$DSH_HOME/commit-guard/state.json`. */
+  /** Absolute state file path; defaults to `$DSH_HOME/push-guard/state.json`. */
   readonly stateFile?: string
   /** Whether a new session starts with the guard enabled. Defaults to true. */
   readonly defaultEnabled?: boolean
 }
 ```
-<!-- END GENERATED config-catalog:@deepseek-ai/dsh-git-commit-guard -->
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-git-push-guard -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-goal -->
 <a id="deepseek-aidsh-goal"></a>
@@ -4817,7 +4817,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-client-ui-entry-customization` | — | [`packages/client/ui-entry-customization/src/index.ts`](../packages/client/ui-entry-customization/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-file-drag` | — | [`packages/client/ui-file-drag/src/index.ts`](../packages/client/ui-file-drag/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-git-branch` | — | [`packages/client/ui-git-branch/src/index.ts`](../packages/client/ui-git-branch/src/index.ts) |
-| `@deepseek-ai/dsh-client-ui-git-commit-guard` | — | [`packages/client/ui-git-commit-guard/src/index.ts`](../packages/client/ui-git-commit-guard/src/index.ts) |
+| `@deepseek-ai/dsh-client-ui-git-push-guard` | — | [`packages/client/ui-git-push-guard/src/index.ts`](../packages/client/ui-git-push-guard/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-goal` | — | [`packages/client/ui-goal/src/index.ts`](../packages/client/ui-goal/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-input-trigger` | — | [`packages/client/ui-input-trigger/src/index.ts`](../packages/client/ui-input-trigger/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-jobs` | — | [`packages/client/ui-jobs/src/index.ts`](../packages/client/ui-jobs/src/index.ts) |

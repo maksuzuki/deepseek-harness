@@ -82,7 +82,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-client-ui-entry-customization` | no | Customize plugin entries in the left sidebar, conversation views, and right sidebar, and quickly create new plugins. |
 | `@deepseek-ai/dsh-client-ui-file-drag` | no | Application-owned file drag transfers and localized failure feedback |
 | `@deepseek-ai/dsh-client-ui-git-branch` | no | Composer stats-row chip showing the checkout the current Session workspace lives in (GitHub repository, branch, worktree) over the workspaceGit Remote namespace |
-| `@deepseek-ai/dsh-client-ui-git-commit-guard` | no | Git commit guard browser surfaces: the composer chip that switches one Session over the host state route and the built-in plugins settings card that sets the default for new Sessions |
+| `@deepseek-ai/dsh-client-ui-git-push-guard` | no | Git push guard browser surfaces: the composer chip that switches one Session over the host state route and the built-in plugins settings card that sets the default for new Sessions |
 | `@deepseek-ai/dsh-client-ui-goal` | no | Session goal surface: GoalBar docked above the composer, read from the goal session projection |
 | `@deepseek-ai/dsh-client-ui-input-trigger` | no | Input trigger pipeline: '/' and '@' detection, candidate menu, pick routing to registered sources |
 | `@deepseek-ai/dsh-client-ui-jobs` | no | Session-header background-job list with on-demand streaming record panels |
@@ -275,7 +275,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 
 | Package | Config | Description |
 |---|---|---|
-| `@deepseek-ai/dsh-git-commit-guard` | yes | Git commit guard plugin: asks the user to confirm commit-creating Git commands, with a per-session switch and a default for new sessions |
+| `@deepseek-ai/dsh-git-push-guard` | yes | Git push guard plugin: asks the user to confirm Git push commands before they run, with a per-session switch and a default for new sessions |
 | `@deepseek-ai/dsh-repeat-tool-reminder` | yes | Repeat-tool-call guard plugin: advisory reminders when an agent loops on identical tool calls |
 | `@deepseek-ai/dsh-tool-call-timeout-policy` | no | Tool-call timeout policy: a tools/execute wrapper that arms a per-tool deadline on exec.signal and returns TOOL_TIMEOUT when it wins |
 

@@ -12,6 +12,8 @@ The same capability was first built as a local profile bundle with a one-shot to
 
 ## Decision
 
+This decision is superseded: the commit guard does not ship, and [the Git push guard](2026-10-26-git-push-guard.md) guards `git push` in its place. The design and alternatives below still explain the guard that ships.
+
 Ship `@deepseek-ai/dsh-git-commit-guard` (Host) and `@deepseek-ai/dsh-client-ui-git-commit-guard` (browser) in the Web bundle. The Host plugin watches `tools/pre-execute` for commit-creating Git subcommands in `bash` and `terminal_send` calls. When the addressed Session's guard is on, it asks one structured `userQuestions` question that names the exact command; `Allow` delegates to the next listener, every other outcome returns a model-visible denial, and a failed ask or an aborted call fails closed. No token, expiry, or pre-approval state exists.
 
 Two settings are deliberately separate. `stateFile` holds `{ default, sessions }`: `defaultEnabled` sets the default for Sessions created from then on, and the composer chip changes one Session. A Session without a stored choice captures the current default on first use, so changing the default never overrides an existing Session. The shipped browser surfaces are the composer chip and a card in the Shiguredo built-in plugin settings group of the Plugins page. The package adds no sidebar entry; the card writes the same state route, and `defaultEnabled` seeds the value before any browser write. Both levels are served by one same-origin `GET|POST /commit-guard/state` route; the route calls the `connection` service's `requestRejection` fence before answering, so Connection's Host/Origin and authentication checks protect the control.

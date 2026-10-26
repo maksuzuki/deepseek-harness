@@ -12,6 +12,8 @@ Status: implemented
 
 ## 决定
 
+本文的决定已被取代：提交守卫不在发布内容中，[Git 推送守卫](2026-10-26-git-push-guard.zh.md)改为守卫 `git push`。下述设计与替代方案仍解释当前发布的守卫。
+
 在 Web bundle 中发布 `@deepseek-ai/dsh-git-commit-guard`（Host）与 `@deepseek-ai/dsh-client-ui-git-commit-guard`（浏览器）。Host 插件在 `tools/pre-execute` 中检查 `bash` 与 `terminal_send` 调用里的提交类 Git 子命令。当目标会话的守卫开启时，它通过一次结构化的 `userQuestions` 提问点名确切命令；选择 `Allow` 会交给下一个监听器，其他任何结果都返回模型可见的拒绝，提问失败或调用被取消则失败关闭。不存在令牌、过期时间或预先批准状态。
 
 两个设置被刻意分开。`stateFile` 保存 `{ default, sessions }`：`defaultEnabled` 设置此后创建的新会话的默认值，输入框芯片修改单个会话。没有存储选择的会话在首次使用时捕获当前默认值，因此修改默认值不会覆盖已有会话。已发布的浏览器界面是输入框芯片与插件页面中“时雨堂内置插件设置”分组的卡片。该包不添加侧边栏条目；卡片写入同一状态路由，`defaultEnabled` 在任何浏览器写入之前提供初始值。两个层级都由同一个同源 `GET|POST /commit-guard/state` 路由提供；路由在回答前调用 `connection` 服务的 `requestRejection` 检查，由 Connection 的 Host/Origin 与身份验证检查保护控制面。
