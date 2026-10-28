@@ -470,6 +470,7 @@ export class PiAiAdapter extends LlmAdapter {
     routing: LlmModelRouting | undefined,
   ): LlmResolvedModelInfo {
     const defaultLevel = describableReasoningLevel(descriptor, profile.reasoning)
+    const defaultThinking = profile.thinkingDefaults.get(descriptor.id)
     return {
       provider,
       id: model,
@@ -479,6 +480,7 @@ export class PiAiAdapter extends LlmAdapter {
       context: { contextWindow: descriptor.contextWindow },
       ...configuredMaxTokens === undefined ? {} : { defaultMaxTokens: configuredMaxTokens },
       ...reasoningInfo(descriptor, defaultLevel),
+      ...defaultThinking === undefined ? {} : { thinking: { default: defaultThinking } },
       ...conversationUpdates(descriptor),
     }
   }
@@ -548,6 +550,14 @@ export class PiAiAdapter extends LlmAdapter {
       model,
       options.reasoningEffort ?? profile.reasoning,
     )
+    const defaultThinking = profile.thinkingDefaults.get(model.id)
+    if (options.thinking !== undefined && defaultThinking === undefined) {
+      throw new LlmError(
+        `pi-ai provider "${model.provider}" model "${model.id}" does not support boolean Thinking`,
+        'UNSUPPORTED_THINKING',
+      )
+    }
+    const thinking = options.thinking ?? defaultThinking
     const apiKey = await this.config.resolveApiKey(effective.provider, effective.apiKeyEnv)
 
     const consumer = new AbortController()
@@ -582,6 +592,7 @@ export class PiAiAdapter extends LlmAdapter {
         }, onReplayDegrade, updates.systemPromptUpdate === 'in-history')
       const events = snapshot.models.streamSimple(model, context, {
         ...profileOptions(profile, reasoning, apiKey),
+        ...thinking === undefined ? {} : { samplingParams: { thinking } },
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },

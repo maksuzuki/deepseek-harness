@@ -42,6 +42,10 @@ describe('headerEquals', () => {
       ...base,
       config: { ...base.config, reasoningEffort: ReasoningEffortId('high') },
     })).toBe(false)
+    expect(headerEquals(base, {
+      ...base,
+      config: { ...base.config, thinking: false },
+    })).toBe(false)
     expect(headerEquals(
       { ...base, config: { ...base.config, maxTokens: 256_000 } },
       {

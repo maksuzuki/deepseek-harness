@@ -901,6 +901,44 @@ describe('LlmRuntime', () => {
     })).rejects.toMatchObject({ code: 'UNSUPPORTED_REASONING_EFFORT' })
   })
 
+  it('materializes boolean thinking independently and rejects unsupported models', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    const adapter = new class extends RecordingAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({
+          provider, id: model, name: model,
+          ...model === 'supported' ? { thinking: { default: false } } : {},
+        })
+      }
+    }(SCRIPT)
+    ctx.llm.registerAdapter(['route'], adapter)
+
+    const defaulted = await ctx.llm.prepareCall({ provider: 'route', model: 'supported' })
+    expect(defaulted.config.thinking).toBe(false)
+    expect(defaulted.adapterDefaults).toEqual({ thinking: true })
+    const explicit = await ctx.llm.prepareCall({ provider: 'route', model: 'supported', thinking: true })
+    expect(explicit.config.thinking).toBe(true)
+    expect(explicit.adapterDefaults).toEqual({})
+    await collect(explicit.stream({ ...explicit.config, messages: [] }))
+    expect(adapter.lastOptions?.thinking).toBe(true)
+    await expect(ctx.llm.prepareCall({ provider: 'route', model: 'plain', thinking: false }))
+      .rejects.toMatchObject({ code: 'UNSUPPORTED_THINKING' })
+  })
+
+  it.each([null, { default: 'off' }])('rejects invalid boolean thinking metadata %j', async (thinking) => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    const adapter = new class extends ScriptedAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({ provider, id: model, name: model, thinking } as unknown as LlmResolvedModelInfo)
+      }
+    }(SCRIPT)
+    ctx.llm.registerAdapter(['route'], adapter)
+    await expect(ctx.llm.resolveModelInfo('route', 'model'))
+      .rejects.toMatchObject({ code: 'INVALID_MODEL_THINKING' })
+  })
+
   it('resolves reasoning defaults at the final adapter boundary after routing middleware', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)

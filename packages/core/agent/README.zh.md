@@ -40,16 +40,16 @@ const handle = await ctx.agents.create({
 await handle.dispose()   // stops the loop, unregisters, removes the session, unwinds the scope
 ```
 
-`AgentOptions` 提供初始提供方／模型路由、可选的由适配器定义的 `reasoningEffort`，以及可选的正数 `maxTokens` 输出上限。循环会校验确切模型的推理（reasoning）支持、解析适配器默认值、把生效值记录在请求头中，并将它们应用到每个对话请求。可选的 `setup(agentCtx, agent)` 回调会在 agent 发布之前组合其作用域世界：`agentCtx` 拥有注册，显式的未发布 Agent 则提供其 Session；Context 不含反向 Agent 属性。作用域工具、提示词段与监听器在 `agent/created` 之前就已存在。Setup 只做组合：创建完成后才能驱动 agent。 setup 开始前 Session 已进入 Store 并完成 `session/created`，因此初始化事件通过实时事件流发出。
+`AgentOptions` 提供初始提供方／模型路由、可选的由适配器定义的 `reasoningEffort`、独立的可选 boolean `thinking`，以及可选的正数 `maxTokens` 输出上限。循环会校验确切模型的能力、解析适配器默认值、把生效值记录在请求头中，并将它们应用到每个对话请求。boolean Thinking 不是 reasoning effort 的别名；适配器会单独声明并消费它。可选的 `setup(agentCtx, agent)` 回调会在 agent 发布之前组合其作用域世界：`agentCtx` 拥有注册，显式的未发布 Agent 则提供其 Session；Context 不含反向 Agent 属性。作用域工具、提示词段与监听器在 `agent/created` 之前就已存在。Setup 只做组合：创建完成后才能驱动 agent。 setup 开始前 Session 已进入 Store 并完成 `session/created`，因此初始化事件通过实时事件流发出。
 
 <a id="model-selection"></a>
 ### 选择模型
 
 `agent.model` 实现 `Model` 接口，与 `agent.inbox` 并列。`current()` 返回选择的独立副本：依次读取待生效选择、最近请求的选择和实时 `agent.options`；没有来源同时提供 provider 与 model 时返回 `undefined`。读取不会固定选择，也不会改变已经准备的步骤。
 
-`select({ provider, model, reasoningEffort? })` 完整赋值，从下一个尚未开始准备的步骤生效。省略强度表示使用适配器默认值；选择操作既不继承旧强度，也不查询默认值。与已记录选择相同则不重复记录，但仅与初始 options 相同仍会记录 `model/selection`。调用方负责校验可用性与能力；追加失败沿用 Session 现有的失败保证。
+`select({ provider, model, reasoningEffort?, thinking? })` 完整赋值，从下一个尚未开始准备的步骤生效。省略控制项表示使用适配器默认值；选择操作既不继承旧控制项，也不查询默认值。`reasoningEffort` 仍是强度控制，而 `thinking` 是独立的 boolean 能力。与已记录选择相同则不重复记录，但仅与初始 options 相同仍会记录 `model/selection`。调用方负责校验可用性与能力；追加失败沿用 Session 现有的失败保证。
 
-普通恢复保留持久化选择。明确覆盖模型的入口先形成完整选择：仅在配置未指定强度且路由不变时保留旧的显式强度，然后调用 `select()`。Web 与 ACP 用户选择直接调用 `select()`，因此省略强度表示 Auto。选择 Session 模型不会改变部署默认值。
+普通恢复保留持久化选择，包括显式 boolean Thinking。明确覆盖模型的入口先形成完整选择：仅在路由不变且覆盖未指定相应控制项时保留旧的显式控制项，然后调用 `select()`。Web 与 ACP 用户选择直接调用 `select()`，因此省略控制项表示使用所选模型的适配器默认值。选择 Session 模型不会改变部署默认值。
 
 要启用作用域内的切换提示，在 Agent setup 中调用 `dsh-agent` 的 `installModelSelection(agentCtx)`。作用域拥有监听器，并在释放时移除它。
 
@@ -75,7 +75,7 @@ await handle.agent.whenIdle()
 
 ### 拦截或观察进行中的工作
 
-`agent/request` 已弃用，仅为现有监听器保留。不要添加新监听器。提供方、模型和可选的显式推理强度在步骤准备时固定；监听器必须保留三者，包括未指定强度的状态。`AgentOptions.maxTokens` 设置输出上限。其他逐请求控制参数覆盖没有替代 API。受影响的调用方参见[迁移指南](../../../docs/upgrade-guide/v0.2.1-alpha.4/session-model-selection/guide.zh.md)。
+`agent/request` 已弃用，仅为现有监听器保留。不要添加新监听器。提供方、模型、可选的显式推理强度和可选的 boolean Thinking 在步骤准备时固定；监听器必须保留四者，包括未指定控制项的状态。`AgentOptions.maxTokens` 设置输出上限。其他逐请求控制参数覆盖没有替代 API。受影响的调用方参见[迁移指南](../../../docs/upgrade-guide/v0.2.1-alpha.4/session-model-selection/guide.zh.md)。
 
 `agent/*` 事件让插件无需依赖循环包即可作用于实时工作。`agent/pre-step` 可以拒绝拟进入的步骤或替换进入它的消息；`agent/request-error` 让监听器重试失败的模型请求；`agent/turn-stopping` 在本可完成的轮次关闭前运行，并可通过 steer 使其保持打开。`agent/assistant-stream` 携带一个进程本地 Assistant attempt 的有序 start、瞬态分片与 end frame。start 给出该 attempt 的轮次与步骤，分片索引从零开始密集递增，`end.index` 则是下一个分片位置。loop 会在 committed end frame 前把完整紧凑流提交为一个 `assistant/message` 或 `assistant/attempt`，因此实时事件仍是呈现数据而非回放来源。`agent/status`、`agent/created` 与 `agent/disposed` 驱动 UI 与协调状态，逐消息的 `agent/inbox/*` 通知则让收件箱投影保持同步。确切签名、分发 mode 与 payload 约定见 [core 子系统页](../../../docs/subsystems/core.zh.md#cordis-surface) 的生成区块。
 
@@ -171,7 +171,7 @@ await handle.agent.whenIdle()
 
 #### 模型看到什么
 
-通过 `agent.ctx` 进行的注册可以遮蔽提示词段或工具，也可以在未发布 setup 期间安装仅适用于该 agent 的拦截器，因此一个 agent 看到的提示词与工具集会与其邻居不同。模型选择会在提示词组装前捕获一次提供方／模型／推理强度值，并将其应用到同一步骤的请求与重试；之后发生的并发变更等待下一个步骤。
+通过 `agent.ctx` 进行的注册可以遮蔽提示词段或工具，也可以在未发布 setup 期间安装仅适用于该 agent 的拦截器，因此一个 agent 看到的提示词与工具集会与其邻居不同。模型选择会在提示词组装前捕获一次提供方／模型／推理强度／Thinking 值，并将其应用到同一步骤的请求与重试；之后发生的并发变更等待下一个步骤。
 
 #### Token 影响
 

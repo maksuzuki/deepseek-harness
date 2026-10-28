@@ -552,6 +552,22 @@ describe('Session', () => {
     }
   })
 
+  it('round-trips boolean thinking and rejects non-boolean durable values', () => {
+    const valid = {
+      type: 'request/header', seq: SessionSeq(0), time: 1,
+      data: {
+        header: { config: { provider: 'mock', model: 'model', thinking: false } },
+        reason: 'initial',
+      },
+    } as const
+    expect(Session.create(SessionId('boolean-thinking'), [valid]).snapshotEvents()[0]).toEqual(valid)
+    const invalid = structuredClone(valid) as SessionEvent
+    if (invalid.type !== 'request/header') throw new Error('test fixture must be a request header')
+    ;(invalid.data.header.config as unknown as Record<string, unknown>).thinking = 'high'
+    expect(() => Session.create(SessionId('invalid-boolean-thinking'), [invalid]))
+      .toThrow('seed request/header at index 0 has invalid boolean Thinking')
+  })
+
   it('round-trips adapter-default markers and rejects invalid durable values', () => {
     const valid = {
       type: 'request/header',

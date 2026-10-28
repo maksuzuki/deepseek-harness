@@ -1,6 +1,6 @@
 /**
  * Conversation call configuration and freeze utilities. Provider routing,
- * model, reasoning effort, and sampling values are request-header state that
+ * model, reasoning controls, and sampling values are request-header state that
  * can affect cache reuse; request waterfalls replace them and the loop logs
  * changed snapshots instead of allowing silent per-call drift.
  * @module dsh-llm/call-config
@@ -15,6 +15,7 @@ const AGENT_LOOP_REQUESTS = new WeakSet<GenerateOptions>()
 /** Concrete generation settings; omitted controls use the selected route's defaults. */
 export interface LlmCallControls {
   reasoningEffort?: ReasoningEffortId
+  thinking?: boolean
   temperature?: number
   maxTokens?: number
   stop?: string[]
@@ -53,6 +54,7 @@ export type ConfigureCall = (
  */
 export interface LlmCallConfigAdapterDefaults {
   reasoningEffort?: true
+  thinking?: true
   maxTokens?: true
 }
 
@@ -69,6 +71,7 @@ export function callConfigEquals(a: LlmCallConfig, b: LlmCallConfig): boolean {
     a.provider !== b.provider
     || a.model !== b.model
     || a.reasoningEffort !== b.reasoningEffort
+    || a.thinking !== b.thinking
     || a.temperature !== b.temperature
     || a.maxTokens !== b.maxTokens
   ) return false

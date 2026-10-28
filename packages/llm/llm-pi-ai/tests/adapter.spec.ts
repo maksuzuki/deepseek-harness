@@ -90,6 +90,39 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.paths).toEqual(['/chat/completions'])
   })
 
+  it('sends top-level boolean thinking for declared models and defaults it off', async () => {
+    const server = await mockServer([{ events: textEvents }, { events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'boolean-gateway': {
+          apiKeyEnv: 'PI_TEST_KEY',
+          api: 'openai-completions',
+          baseURL: `${server.url}/v1`,
+          models: [{ id: 'qwen-boolean', thinking: false }, { id: 'plain' }],
+        },
+      },
+    })
+
+    await expect(ctx.llm.resolveModelInfo('boolean-gateway', 'qwen-boolean'))
+      .resolves.toMatchObject({ thinking: { default: false } })
+    await assemble(ctx, { provider: 'boolean-gateway', model: 'qwen-boolean', messages: [] })
+    await assemble(ctx, { provider: 'boolean-gateway', model: 'qwen-boolean', thinking: true, messages: [] })
+    expect(server.requests[0]).toMatchObject({ model: 'qwen-boolean', thinking: false })
+    expect(server.requests[1]).toMatchObject({ model: 'qwen-boolean', thinking: true })
+    expect(server.requests[0]).not.toHaveProperty('reasoning_effort')
+    expect(server.requests[1]).not.toHaveProperty('reasoning_effort')
+
+    const unsupported = await assemble(ctx, {
+      provider: 'boolean-gateway', model: 'plain', thinking: false, messages: [],
+    })
+    expect(unsupported.finish).toMatchObject({
+      kind: 'error', failure: { code: 'UNSUPPORTED_THINKING' },
+    })
+    expect(server.requests).toHaveLength(2)
+  })
+
   it('keeps prepared model metadata and dispatch on one profile snapshot', async () => {
     const first = await mockServer([{ events: textEvents }])
     const second = await mockServer([])

@@ -219,6 +219,8 @@ export interface ResolvedPiAiProviderProfile
    * own, so a catalog capability must not appear here.
    */
   configuredMaxTokens: ReadonlyMap<string, number>
+  /** Default boolean Thinking value for each model explicitly declaring the top-level field. */
+  thinkingDefaults: ReadonlyMap<string, boolean>
   /** Validated peak windows by model id; empty when no entry declares one. */
   peak: ReadonlyMap<string, readonly PiAiPeakWindow[]>
 }
@@ -326,6 +328,7 @@ const modelFields = {
   // `{}`, and absent must stay distinguishable — it means "inherit the
   // installed catalog's capability", while `false` disables reasoning.
   reasoningEfforts: z.union([z.const(false), reasoningEfforts]),
+  thinking: z.boolean(),
   compat: compatProfile,
   peak: peakCandidates,
 }
@@ -527,6 +530,7 @@ export function resolveProfiles(
       ...rest.headers === undefined ? {} : { headers: { ...rest.headers } },
       ...rest.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...rest.thinkingBudgets } },
       configuredMaxTokens: catalog?.configuredMaxTokens ?? new Map(),
+      thinkingDefaults: catalog?.thinkingDefaults ?? new Map(),
       modelErrors: catalog?.modelErrors ?? new Map(),
       peak: catalog?.peak ?? new Map(),
       ...piProvider === undefined ? {} : { piProvider },
@@ -557,6 +561,7 @@ export function catalogAlternateProfile(provider: string, piProvider: Provider):
     piProvider,
     modelErrors: new Map(),
     configuredMaxTokens: new Map(),
+    thinkingDefaults: new Map(),
     peak: new Map(),
   }
 }

@@ -468,6 +468,7 @@ export class ApiSessionAgentController {
       get provider() { return defaults.currentSelection().provider },
       get model() { return defaults.currentSelection().model },
       get reasoningEffort() { return defaults.currentSelection().reasoningEffort },
+      get thinking() { return defaults.currentSelection().thinking },
     }
   }
 

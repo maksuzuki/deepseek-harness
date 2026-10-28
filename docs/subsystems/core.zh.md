@@ -211,6 +211,8 @@ interface AgentOptions {
   model?: string
   /** Adapter-owned reasoning effort for the selected provider/model route. */
   reasoningEffort?: ReasoningEffortId | undefined
+  /** Adapter-owned boolean Thinking selection for the selected provider/model route. */
+  thinking?: boolean | undefined
   /** Maximum output tokens for each conversation-model request. */
   maxTokens?: number
 }
@@ -245,7 +247,7 @@ interface Model {
 ```
 
 ```ts type-equiv
-/** Complete provider, model, and optional reasoning effort chosen for one Session's model steps. */
+/** Complete provider, model, and optional reasoning controls chosen for one Session's model steps. */
 interface ModelSelection {
   /** Registered provider route. */
   provider: string
@@ -253,6 +255,8 @@ interface ModelSelection {
   model: string
   /** Adapter-owned reasoning effort, or provider/default behavior when absent. */
   reasoningEffort?: ReasoningEffortId
+  /** Boolean Thinking selection, or the adapter-configured default when absent. */
+  thinking?: boolean
 }
 ```
 

@@ -47,8 +47,8 @@ import css from './ModelSelect.module.css'
 import { orderModelProviders } from './provider-order.ts'
 import { activeRoutingWindow, type ModelRouting } from './routing.ts'
 
-/** Which pane the dropdown shows: the two-row root or one drilled-in list. */
-type Pane = 'root' | 'model' | 'effort'
+/** Which pane the dropdown shows: the root or one drilled-in list. */
+type Pane = 'root' | 'model' | 'effort' | 'thinking'
 
 /** One dynamic effort row; undefined means preserve the provider default. */
 interface EffortChoice {
@@ -132,6 +132,7 @@ export function ModelSelect(
         ...model.reasoning?.defaultEffort === undefined
           ? {}
           : { reasoningEffort: model.reasoning.defaultEffort },
+        ...model.thinking === undefined ? {} : { thinking: model.thinking.default },
       } satisfies ModelSelection,
     }))), [groups])
   const showSearch = choices.length > 4
@@ -152,7 +153,9 @@ export function ModelSelect(
   const routingNow = useRoutingClock(routing !== undefined)
   const activeRoute = routing === undefined ? undefined : activeRoutingWindow(routing, routingNow)
   const reasoning = currentChoice?.model.reasoning
+  const thinking = currentChoice?.model.thinking
   const effectiveEffort = state.current?.reasoningEffort ?? reasoning?.defaultEffort
+  const effectiveThinking = state.current?.thinking ?? thinking?.default
   const effortLabel = currentChoice === undefined
     ? undefined
     : reasoning === undefined
@@ -201,7 +204,7 @@ export function ModelSelect(
 
   // Pane switches unmount the focused row; restore focus inside the menu so
   // keyboard navigation remains available.
-  const paneFocus = useRef<'drill' | 'model' | 'effort' | null>(null)
+  const paneFocus = useRef<'drill' | Exclude<Pane, 'root'> | null>(null)
   const previousShowSearch = useRef(showSearch)
   useEffect(() => {
     const changedSearchMode = previousShowSearch.current !== showSearch
@@ -223,9 +226,10 @@ export function ModelSelect(
       ;(target ?? triggerRef.current)?.focus()
       return
     }
-    const cell = itemRefs.current[intent === 'effort' ? 1 : 0]
+    const index = intent === 'model' ? 0 : intent === 'effort' ? 1 : reasoning === undefined ? 1 : 2
+    const cell = itemRefs.current[index]
     ;(cell !== null && cell !== undefined && !cell.disabled ? cell : triggerRef.current)?.focus()
-  }, [open, pane, showSearch])
+  }, [open, pane, reasoning, showSearch])
 
   useEffect(() => {
     const viewport = groupsRef.current
@@ -441,8 +445,22 @@ export function ModelSelect(
       provider: state.current.provider,
       model: state.current.model,
       ...effort === undefined ? {} : { reasoningEffort: effort },
+      ...state.current.thinking === undefined ? {} : { thinking: state.current.thinking },
     }
     submit(selection)
+  }
+
+  const chooseThinking = (value: boolean): void => {
+    if (state.current === null || effectiveThinking === value) {
+      closeAfterSelection()
+      return
+    }
+    submit({
+      provider: state.current.provider,
+      model: state.current.model,
+      ...state.current.reasoningEffort === undefined ? {} : { reasoningEffort: state.current.reasoningEffort },
+      thinking: value,
+    })
   }
 
   /** Provider display name; the account route owns localized copy. */
@@ -464,14 +482,21 @@ export function ModelSelect(
       ? providerName(currentChoice.group)
       : `${groups.find(group => group.id === activeRoute.provider)?.name ?? activeRoute.provider} (${t('trigger.routing')})`
   const modelValue = providerLabel === undefined ? modelLabel : `${providerLabel} · ${modelLabel}`
-  const triggerLabel = effortLabel === undefined ? modelValue : `${modelValue} · ${effortLabel}`
+  const thinkingLabel = effectiveThinking === undefined
+    ? undefined
+    : effectiveThinking ? t('thinking.on') : t('thinking.off')
+  const triggerLabel = [modelValue, effortLabel, thinkingLabel].filter(value => value !== undefined).join(' · ')
   const triggerAria = (waiting
     ? t('trigger.loading')
     : currentChoice === undefined
       ? t('trigger.selectAria')
-      : effortLabel === undefined
+      : effortLabel === undefined && thinkingLabel === undefined
         ? t('trigger.aria', { model: modelValue })
-        : t('trigger.ariaEffort', { model: modelValue, effort: effortLabel }))
+        : effortLabel !== undefined && thinkingLabel !== undefined
+          ? t('trigger.ariaEffortThinking', { model: modelValue, effort: effortLabel, thinking: thinkingLabel })
+          : effortLabel !== undefined
+            ? t('trigger.ariaEffort', { model: modelValue, effort: effortLabel })
+            : t('trigger.ariaThinking', { model: modelValue, thinking: thinkingLabel }))
   const renderModelLabel = (
     provider: ModelLabelOwner['provider'], model: ModelLabelOwner['model'],
     placement: ModelLabelOwner['placement'], selected: boolean,
@@ -531,6 +556,7 @@ export function ModelSelect(
           {currentChoice === undefined ? modelLabel : renderModelLabel(currentChoice.group.provider, currentChoice.model, 'trigger', true)}
         </span>
         {effortLabel !== undefined && <span className={css.triggerEffort}>{effortLabel}</span>}
+        {thinkingLabel !== undefined && <span className={css.triggerEffort}>{thinkingLabel}</span>}
         {busy
           ? <StateDot state="ongoing" />
           : <IconChevronDownOutlineRegular className={clsx(css.chevron, open && css.chevronOpen)} />}
@@ -568,6 +594,13 @@ export function ModelSelect(
                 <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { drill('effort') }}>
                   <span className={css.cellLabel}>{t('menu.effort')}</span>
                   <span className={css.cellValue}>{effortLabel}</span>
+                  <IconChevronRightOutlineRegular className={css.cellChevron} />
+                </button>
+              )}
+              {thinking !== undefined && (
+                <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { drill('thinking') }}>
+                  <span className={css.cellLabel}>{t('menu.thinking')}</span>
+                  <span className={css.cellValue}>{thinkingLabel}</span>
                   <IconChevronRightOutlineRegular className={css.cellChevron} />
                 </button>
               )}
@@ -710,6 +743,31 @@ export function ModelSelect(
                   </button>
                 ))}
             </>
+          )}
+
+          {pane === 'thinking' && (
+            [false, true].map(value => (
+              <button
+                ref={itemRef()}
+                type="button"
+                role="menuitemradio"
+                aria-checked={effectiveThinking === value}
+                className={clsx(css.option, effectiveThinking === value && css.selected)}
+                key={String(value)}
+                disabled={busy}
+                onClick={() => { chooseThinking(value) }}
+              >
+                <span className={css.optionCopy}>
+                  <span className={css.modelName}>{value ? t('thinking.on') : t('thinking.off')}</span>
+                </span>
+                <span className={css.check}>
+                  {pending !== null && pending.provider === state.current?.provider
+                    && pending.model === state.current.model && pending.thinking === value
+                    ? <StateDot state="ongoing" />
+                    : effectiveThinking === value ? <IconCheckOutlineRegular /> : null}
+                </span>
+              </button>
+            ))
           )}
         </MenuSurface>,
         document.body,

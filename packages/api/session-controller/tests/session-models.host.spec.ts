@@ -474,6 +474,13 @@ describe('Web session model selection', () => {
     ], {
       efforts: [{ id: ReasoningEffortId('high'), name: 'High', description: 'More thinking' }],
     }))
+    ctx.llm.registerAdapter(['boolean-thinking'], new class extends CatalogAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({ provider, id: model, name: model, thinking: { default: false } })
+      }
+    }('Boolean Thinking', [
+      { provider: 'boolean-thinking', id: 'qwen3.5-9b', name: 'Qwen 3.5 9B' },
+    ]))
     ctx.llm.registerAdapter(['string-failure'], new class extends CatalogAdapter {
       override listModels(): Promise<readonly LlmModelInfo[]> {
         // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- non-Error provider normalization is the scenario.
@@ -498,6 +505,11 @@ describe('Web session model selection', () => {
             efforts: [{ id: 'high', name: 'High', description: 'More thinking' }],
           },
         }],
+      },
+      {
+        id: 'boolean-thinking',
+        name: 'Boolean Thinking',
+        models: [{ id: 'qwen3.5-9b', name: 'Qwen 3.5 9B', thinking: { default: false } }],
       },
     ]))
     expect(catalog.failures).toContainEqual({

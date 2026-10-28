@@ -635,6 +635,8 @@ interface LlmResolvedModelInfo extends LlmModelInfo {
   defaultMaxTokens?: number
   /** Adapter-owned selectable reasoning levels when exposed. */
   reasoning?: LlmModelReasoningInfo
+  /** Adapter-owned boolean Thinking control when exposed. */
+  thinking?: LlmModelThinkingInfo
   /** Declared mid-conversation system prompt handling; absent means only a leading system message is read. */
   systemPromptUpdate?: SystemPromptUpdate
   /** Declared mid-conversation tool declaration handling; absent means every request declares the complete tool list. */
@@ -667,6 +669,8 @@ interface GenerateOptions {
   model: string
   /** Adapter-owned reasoning effort selected for this exact model. */
   reasoningEffort?: ReasoningEffortId
+  /** Adapter-owned boolean Thinking selection for this exact model. */
+  thinking?: boolean
   /**
    * Ordered conversation messages, exactly as the provider sees them. A
    * loop-built request passes the derived history (dsh-agent-loop), whose
@@ -813,6 +817,7 @@ FIXME(call-config-shape)：重新审视其余哪些字段出于缓存目的确�
 /** Concrete generation settings; omitted controls use the selected route's defaults. */
 interface LlmCallControls {
   reasoningEffort?: ReasoningEffortId
+  thinking?: boolean
   temperature?: number
   maxTokens?: number
   stop?: string[]
@@ -855,6 +860,7 @@ type ConfigureCall = (
  */
 interface LlmCallConfigAdapterDefaults {
   reasoningEffort?: true
+  thinking?: true
   maxTokens?: true
 }
 ```

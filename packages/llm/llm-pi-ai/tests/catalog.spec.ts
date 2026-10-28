@@ -768,6 +768,30 @@ describe('per-model reasoning efforts', () => {
   })
 })
 
+describe('per-model boolean Thinking', () => {
+  it('records an explicit default only for OpenAI Chat Completions models', () => {
+    const resolved = resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-completions', baseURL: 'https://acme.test',
+        models: [{ id: 'off', thinking: false }, { id: 'on', thinking: true }, { id: 'plain' }],
+      },
+    })
+    expect([...resolved.get('acme-gateway')!.thinkingDefaults]).toEqual([['off', false], ['on', true]])
+  })
+
+  it('rejects protocol mismatches and reasoning-effort aliasing', () => {
+    expect(() => resolveProfiles({
+      anthropic: { models: [{ id: 'm', thinking: false }], api: 'anthropic-messages' },
+    })).toThrow(/only openai-completions/)
+    expect(() => resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-completions', baseURL: 'https://acme.test',
+        models: [{ id: 'm', thinking: false, reasoningEfforts: { off: null, high: 'high' } }],
+      },
+    })).toThrow(/both boolean Thinking and reasoning efforts/)
+  })
+})
+
 describe('modelOverrides', () => {
   const deepseekModel = (): Model<Api> => {
     const [model] = getBuiltinModels('deepseek')

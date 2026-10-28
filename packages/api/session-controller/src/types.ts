@@ -89,6 +89,7 @@ export interface ModelSelection {
   readonly provider: string
   readonly model: string
   readonly reasoningEffort?: string
+  readonly thinking?: boolean
 }
 
 /** One adapter-owned reasoning effort for an exact model route. */
@@ -104,12 +105,18 @@ export interface ModelReasoning {
   readonly defaultEffort?: string
 }
 
+/** Selectable boolean Thinking metadata for one exact model route. */
+export interface ModelThinking {
+  readonly default: boolean
+}
+
 /** One model displayed inside its provider group. */
 export interface ModelCatalogModel {
   readonly id: string
   readonly name: string
   readonly description?: string
   readonly reasoning?: ModelReasoning
+  readonly thinking?: ModelThinking
   /** Windows in which this model's requests go to another provider; absent means none. */
   readonly routing?: LlmModelRouting
 }

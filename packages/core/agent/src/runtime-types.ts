@@ -36,6 +36,8 @@ export interface AgentOptions {
   model?: string
   /** Adapter-owned reasoning effort for the selected provider/model route. */
   reasoningEffort?: ReasoningEffortId | undefined
+  /** Adapter-owned boolean Thinking selection for the selected provider/model route. */
+  thinking?: boolean | undefined
   /** Maximum output tokens for each conversation-model request. */
   maxTokens?: number
 }

@@ -18,11 +18,11 @@
   en: 7d1ae2375bd4fbfc
   zh: b6b4b2e943174cb2
 /deepseek-ai-dsh-agent/use-this-package/create-or-resume-an-agent:
-  en: 26d49c76bce41e30
-  zh: 9710f54e24b190d1
+  en: 61dd40a8f21b5eed
+  zh: 8dc9ad4c427aed5d
 /deepseek-ai-dsh-agent/use-this-package/select-a-model:
-  en: 85b0ff72a187110f
-  zh: 3f61c1568d27b8bc
+  en: 6e744e334a4b5595
+  zh: bc7e855e6f3a1454
 /deepseek-ai-dsh-agent/use-this-package/drive-an-agent-s-conversation:
   en: 71e258897e2e7d73
   zh: abf0991012faa17e
@@ -30,8 +30,8 @@
   en: 2594a1e02adea801
   zh: cae8860369728efb
 /deepseek-ai-dsh-agent/use-this-package/intercept-or-observe-work-in-flight:
-  en: 371511fb13093dd2
-  zh: 4be81d246cf299b2
+  en: 4807944d7cfa9fe5
+  zh: ab5513f743c359eb
 /deepseek-ai-dsh-agent/understand-the-implementation:
   en: ce7e776e9d516bdb
   zh: 59d2751743db7795
@@ -81,8 +81,8 @@
   en: 215fc35b0f30e38a
   zh: 21788ec980c300ea
 /deepseek-ai-dsh-agent/model-experience/agent-scoped-request-composition/what-the-model-sees:
-  en: 09a31923f42fcadf
-  zh: c52117c2afbca7c6
+  en: 2470723e12abe703
+  zh: a828dafc09dd6327
 /deepseek-ai-dsh-agent/model-experience/agent-scoped-request-composition/token-effect:
   en: b25f4a4bb14fdfce
   zh: 9369ace52f58a579

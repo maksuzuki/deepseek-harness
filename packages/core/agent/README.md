@@ -40,16 +40,16 @@ const handle = await ctx.agents.create({
 await handle.dispose()   // stops the loop, unregisters, removes the session, unwinds the scope
 ```
 
-`AgentOptions` supplies the initial provider/model route, optional adapter-owned `reasoningEffort`, and optional positive `maxTokens` output cap. The loop validates exact-model reasoning support, resolves adapter defaults, records the effective values in the request header, and applies them to each conversation request. An optional `setup(agentCtx, agent)` callback composes the agent's scoped world before it is published: `agentCtx` owns registrations, while the explicit unpublished Agent provides its Session; the Context has no reverse Agent property. Scoped tools, prompt sections, and listeners exist before `agent/created`. Setup is composition-only: drive the agent only after creation resolves. The Session has entered its store and completed `session/created` before setup, so initialization events follow the live event feed.
+`AgentOptions` supplies the initial provider/model route, optional adapter-owned `reasoningEffort`, independent optional boolean `thinking`, and optional positive `maxTokens` output cap. The loop validates exact-model capabilities, resolves adapter defaults, records the effective values in the request header, and applies them to each conversation request. Boolean Thinking is not a reasoning-effort alias: adapters advertise and consume it separately. An optional `setup(agentCtx, agent)` callback composes the agent's scoped world before it is published: `agentCtx` owns registrations, while the explicit unpublished Agent provides its Session; the Context has no reverse Agent property. Scoped tools, prompt sections, and listeners exist before `agent/created`. Setup is composition-only: drive the agent only after creation resolves. The Session has entered its store and completed `session/created` before setup, so initialization events follow the live event feed.
 
 <a id="model-selection"></a>
 ### Select a model
 
 `agent.model` implements `Model`, alongside `agent.inbox`. `current()` returns a detached selection: the pending choice, then the latest request's choice, then live `agent.options`; it returns `undefined` when no source supplies both provider and model. Reading does not pin a choice or change a prepared step.
 
-`select({ provider, model, reasoningEffort? })` assigns the complete choice for the next step whose preparation has not begun. Omitted effort uses adapter defaults; selection neither inherits old effort nor queries defaults. An equal recorded choice is a no-op, but a choice equal only to initial options is recorded as `model/selection`. Callers validate availability and capabilities; append failures retain the Session's existing guarantees.
+`select({ provider, model, reasoningEffort?, thinking? })` assigns the complete choice for the next step whose preparation has not begun. Omitted controls use adapter defaults; selection neither inherits old controls nor queries defaults. `reasoningEffort` remains a strength control, while `thinking` is an independent boolean capability. An equal recorded choice is a no-op, but a choice equal only to initial options is recorded as `model/selection`. Callers validate availability and capabilities; append failures retain the Session's existing guarantees.
 
-Ordinary resume keeps the recorded choice. An entry point explicitly overriding the model first builds a complete selection, retaining the previous explicit effort only when the configured route is unchanged and omits effort, then calls `select()`. Web and ACP user selections call `select()` directly, so omitted effort means Auto. Selecting a Session model does not change deployment defaults.
+Ordinary resume keeps the recorded choice, including explicit boolean Thinking. An entry point explicitly overriding the model first builds a complete selection, retaining explicit controls only when the configured route is unchanged and the override omits them, then calls `select()`. Web and ACP user selections call `select()` directly, so omitted controls use the selected model's adapter defaults. Selecting a Session model does not change deployment defaults.
 
 For scoped switch notices, call `installModelSelection(agentCtx)` from `dsh-agent` during Agent setup. The scope owns the listener and removes it on disposal.
 
@@ -75,7 +75,7 @@ await handle.agent.whenIdle()
 
 ### Intercept or observe work in flight
 
-`agent/request` is deprecated and retained for existing listeners. Do not add new listeners. Provider, model, and optional explicit reasoning effort are fixed at step preparation; listeners must preserve all three, including an absent effort. `AgentOptions.maxTokens` sets the output cap. Other per-request control overrides have no replacement API. See the [migration guide](../../../docs/upgrade-guide/v0.2.1-alpha.4/session-model-selection/guide.md) for affected callers.
+`agent/request` is deprecated and retained for existing listeners. Do not add new listeners. Provider, model, optional explicit reasoning effort, and optional boolean Thinking are fixed at step preparation; listeners must preserve all four, including absent controls. `AgentOptions.maxTokens` sets the output cap. Other per-request control overrides have no replacement API. See the [migration guide](../../../docs/upgrade-guide/v0.2.1-alpha.4/session-model-selection/guide.md) for affected callers.
 
 The `agent/*` events let plugins act on live work without depending on the loop package. `agent/pre-step` can reject a proposed step or replace the messages entering it; `agent/request-error` lets a listener retry a failed model request; `agent/turn-stopping` runs before an otherwise completed turn closes and can steer to keep it open. `agent/assistant-stream` carries one process-local Assistant attempt's ordered start, transient chunk, and end frames. Start names the attempt's turn and step, chunk indexes are dense from zero, and `end.index` is the next chunk position. The loop commits the complete compact stream as one `assistant/message` or `assistant/attempt` before a committed end frame, so the live event remains presentation data rather than the replay source. `agent/status`, `agent/created`, and `agent/disposed` drive UI and coordination state, and the per-message `agent/inbox/*` notifications keep inbox projections in sync. Exact signatures, dispatch modes, and payload contracts live in the generated region of the [core subsystem page](../../../docs/subsystems/core.md#cordis-surface).
 
@@ -171,7 +171,7 @@ Accepted history and steering are append-only; a blocked submission sends no req
 
 #### What the model sees
 
-Registrations through `agent.ctx` can shadow prompt sections or tools and can install agent-only interceptors during unpublished setup, so one agent sees a different prompt and tool set than its neighbors. Model selection captures one provider/model/effort value before prompt assembly and applies it to the same step's request and retries; a later concurrent change waits for another step.
+Registrations through `agent.ctx` can shadow prompt sections or tools and can install agent-only interceptors during unpublished setup, so one agent sees a different prompt and tool set than its neighbors. Model selection captures one provider/model/effort/Thinking value before prompt assembly and applies it to the same step's request and retries; a later concurrent change waits for another step.
 
 #### Token effect
 

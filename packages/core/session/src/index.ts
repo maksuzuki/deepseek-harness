@@ -259,6 +259,10 @@ function assertCurrentLlmShape(event: Record<string, unknown>, index: number): v
       && (typeof reasoningEffort !== 'string' || reasoningEffort.length === 0)) {
       throw new Error(`seed request/header at index ${index} has an invalid reasoningEffort`)
     }
+    const thinking = configRecord['thinking']
+    if (thinking !== undefined && typeof thinking !== 'boolean') {
+      throw new Error(`seed request/header at index ${index} has invalid boolean Thinking`)
+    }
     assertAdapterDefaults(headerRecord['adapterDefaults'], configRecord, index)
     const reason = record?.['reason']
     if (reason !== 'initial' && reason !== 'resume' && reason !== 'change' && reason !== 'series') {
@@ -295,7 +299,7 @@ function assertAssistantSettlementShape(
   }
 }
 
-const allowedAdapterKeys = new Set(['reasoningEffort', 'maxTokens'])
+const allowedAdapterKeys = new Set(['reasoningEffort', 'thinking', 'maxTokens'])
 
 /** Validate adapter-default markers imported from a durable request header. */
 function assertAdapterDefaults(
@@ -311,6 +315,7 @@ function assertAdapterDefaults(
   if (Object.keys(defaults).some(key => !allowedAdapterKeys.has(key))
     || Object.values(defaults).some(marker => marker !== true)
     || defaults['reasoningEffort'] === true && config['reasoningEffort'] === undefined
+    || defaults['thinking'] === true && config['thinking'] === undefined
     || defaults['maxTokens'] === true && config['maxTokens'] === undefined) {
     throw new Error(`seed request/header at index ${index} has invalid adapterDefaults`)
   }

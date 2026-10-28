@@ -48,6 +48,15 @@ function messagesResponse(text: string, complete = true): string {
   return events.map(event => `data: ${JSON.stringify(event)}\n\n`).join('')
 }
 
+/** One complete OpenAI Chat Completions response for the pi-ai process smoke. */
+function chatCompletionsResponse(text: string): string {
+  return [
+    { choices: [{ delta: { role: 'assistant', content: '' }, index: 0, finish_reason: null }] },
+    { choices: [{ delta: { content: text }, index: 0, finish_reason: null }] },
+    { choices: [{ delta: {}, index: 0, finish_reason: 'stop' }], usage: { prompt_tokens: 3, completion_tokens: 1 } },
+  ].map(event => `data: ${JSON.stringify(event)}\n\n`).join('') + 'data: [DONE]\n\n'
+}
+
 /** Exchange a printed process token once for Node-side HTTP/WebSocket probes. */
 function authenticatedWeb(launchUrl: string): Promise<{ origin: string; cookie: string }> {
   const existing = authenticatedCookies.get(launchUrl)
@@ -514,6 +523,109 @@ describe('dsh web keyless CLI smoke', () => {
       rmSync(workspace, { recursive: true, force: true })
     }
   })
+
+  it('sends boolean Thinking OFF and ON across a real DSH process restart without changing the Standard tools', async () => {
+    requireDist()
+    const workspace = mkdtempSync(join(tmpdir(), 'dsh-web-boolean-thinking-'))
+    type CapturedRequest = { thinking?: unknown; reasoning_effort?: unknown; tools?: unknown[] }
+    const requests: CapturedRequest[] = []
+    let resolveRequests!: (requests: CapturedRequest[]) => void
+    const received = new Promise<CapturedRequest[]>((resolve) => { resolveRequests = resolve })
+    const provider = createServer((request, response) => {
+      let body = ''
+      request.setEncoding('utf8')
+      request.on('data', (chunk: string) => { body += chunk })
+      request.on('end', () => {
+        const parsed = JSON.parse(body) as CapturedRequest
+        if ((parsed.tools?.length ?? 0) > 0) {
+          requests.push(parsed)
+          if (requests.length === 3) resolveRequests(requests)
+        }
+        response.writeHead(200, { 'content-type': 'text/event-stream' })
+        const marker = ['boolean-off-done', 'boolean-on-done', 'boolean-resume-done'][requests.length - 1]
+          ?? 'boolean-extra-done'
+        response.end(chatCompletionsResponse(marker))
+      })
+    })
+    await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve))
+    const address = provider.address()
+    if (address === null || typeof address === 'string') throw new Error('mock provider did not bind a TCP port')
+    const overlay = join(workspace, 'boolean-thinking.patch.yml')
+    writeFileSync(overlay, `
+- id: llm-pi-ai
+  config:
+    providers:
+      boolean-gateway:
+        api: openai-completions
+        apiKeyEnv: BOOLEAN_GATEWAY_KEY
+        baseURL: http://127.0.0.1:${address.port}/v1
+        models:
+          - id: qwen3.5-9b
+            thinking: false
+- id: agent-default-model
+  config:
+    provider: boolean-gateway
+    model: qwen3.5-9b
+`)
+    const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
+    const launch = (): ChildProcess => spawn(process.execPath, [
+      '--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web',
+      '--patch', overlay, '--no-open', '--port', '0',
+    ], {
+      cwd: workspace,
+      env: {
+        ...process.env,
+        BOOLEAN_GATEWAY_KEY: 'local-fake-key',
+        DSH_HOME: join(workspace, '.dsh'),
+        DSH_AGENTS_HOME: join(workspace, '.agents'),
+        TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const stop = async (process: ChildProcess): Promise<void> => {
+      const closed = process.exitCode === null
+        ? new Promise<void>((resolveClose) => { process.once('close', () => { resolveClose() }) })
+        : Promise.resolve()
+      if (process.exitCode === null) process.kill('SIGTERM')
+      await closed
+    }
+    let child = launch()
+    try {
+      let baseUrl = await waitForReadyLine(child)
+      const created = await remoteRpc<{ sessionId: string }>(baseUrl, 'session/create', { request: {} })
+      const prompt = async (marker: string): Promise<void> => {
+        await remoteRpc<{ accepted: true }>(baseUrl, 'session/prompt', { request: {
+          requestId: randomUUID(), sessionId: created.sessionId, mode: 'queue',
+          content: [{ type: 'text', text: marker }],
+        } })
+      }
+      await prompt('boolean off')
+      await waitForAssistantMarker(baseUrl, created.sessionId, 'boolean-off-done')
+      await remoteRpc(baseUrl, 'session/selectModel', { request: {
+        sessionId: created.sessionId, provider: 'boolean-gateway', model: 'qwen3.5-9b', thinking: true,
+      } })
+      await prompt('boolean on')
+      await waitForAssistantMarker(baseUrl, created.sessionId, 'boolean-on-done')
+      await stop(child)
+      child = launch()
+      baseUrl = await waitForReadyLine(child)
+      await prompt('boolean on after resume')
+      await waitForAssistantMarker(baseUrl, created.sessionId, 'boolean-resume-done')
+      const captured = await Promise.race([
+        received,
+        new Promise<never>((_resolve, reject) => {
+          setTimeout(() => { reject(new Error('three provider requests not received in 15s')) }, 15_000).unref()
+        }),
+      ])
+      expect(captured.map(request => request.thinking)).toEqual([false, true, true])
+      expect(captured.every(request => request.reasoning_effort === undefined)).toBe(true)
+      expect(captured.map(request => request.tools?.length)).toEqual([31, 31, 31])
+    } finally {
+      await stop(child)
+      await new Promise<void>(resolveClose => provider.close(() => { resolveClose() }))
+      rmSync(workspace, { recursive: true, force: true })
+    }
+  }, 120_000)
 
   it('retries a partial transport failure through the shipped Web composition', async () => {
     requireDist()

@@ -75,7 +75,7 @@ export interface TurnBoundaryProjection {
   readonly lastTurn: number
 }
 
-/** Complete provider, model, and optional reasoning effort chosen for one Session's model steps. */
+/** Complete provider, model, and optional reasoning controls chosen for one Session's model steps. */
 export interface ModelSelection {
   /** Registered provider route. */
   provider: string
@@ -83,6 +83,8 @@ export interface ModelSelection {
   model: string
   /** Adapter-owned reasoning effort, or provider/default behavior when absent. */
   reasoningEffort?: ReasoningEffortId
+  /** Boolean Thinking selection, or the adapter-configured default when absent. */
+  thinking?: boolean
 }
 
 /** Client view of the durable model-selection fold. */

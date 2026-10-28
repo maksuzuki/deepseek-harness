@@ -463,6 +463,42 @@ describe('ModelSelect reasoning effort', () => {
   })
 })
 
+describe('ModelSelect boolean Thinking', () => {
+  it('shows ON/OFF only for a supported model and submits a boolean independently', async () => {
+    const supported = state({
+      current: { provider: 'deepseek-official', model: 'deepseek-v4-flash', thinking: false },
+      groups: [{
+        id: 'deepseek-official', name: 'DeepSeek', models: [{
+          id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', thinking: { default: false },
+        }, { id: 'plain', name: 'Plain' }],
+      }],
+    })
+    const directory = createSnapshotStore<ModelDirectoryState>(supported)
+    const select = vi.fn(async (selection: ModelSelection) => {
+      directory.set({ ...supported, current: selection })
+      return { ok: true as const, value: undefined }
+    })
+    render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={directory}
+      load={vi.fn()} select={select} t={t} />)
+
+    const trigger = screen.getByRole('button', { name: /Thinking OFF/ })
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('menuitem', { name: /Thinking/ }))
+    expect(screen.getAllByRole('menuitemradio').map(row => row.textContent))
+      .toEqual(['Thinking OFF', 'Thinking ON'])
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Thinking ON' }))
+    await waitFor(() => {
+      expect(select).toHaveBeenCalledWith({
+        provider: 'deepseek-official', model: 'deepseek-v4-flash', thinking: true,
+      })
+    })
+
+    act(() => { directory.set({ ...supported, current: { provider: 'deepseek-official', model: 'plain' } }) })
+    fireEvent.click(screen.getByRole('button', { name: /Plain/ }))
+    expect(screen.queryByRole('menuitem', { name: /Thinking/ })).toBeNull()
+  })
+})
+
 describe('ModelSelect keyboard walk', () => {
   function mountOpen() {
     const select = vi.fn().mockResolvedValue({ ok: true, value: undefined })

@@ -23,18 +23,29 @@ export interface ModelSelectionProjectionState {
 }
 
 /**
- * Build a detached selection, omitting an absent effort.
+ * Build a detached selection, omitting absent reasoning controls.
  * @param provider - provider route.
  * @param model - provider-owned model id.
  * @param reasoningEffort - explicit effort; omission follows adapter defaults.
+ * @param thinking - explicit boolean Thinking value; omission follows adapter defaults.
  * @returns a detached selection.
  */
-function toSelection(provider: string, model: string, reasoningEffort: ReasoningEffortId | undefined): ModelSelection {
-  return { provider, model, ...reasoningEffort === undefined ? {} : { reasoningEffort } }
+function toSelection(
+  provider: string,
+  model: string,
+  reasoningEffort: ReasoningEffortId | undefined,
+  thinking: boolean | undefined,
+): ModelSelection {
+  return {
+    provider,
+    model,
+    ...reasoningEffort === undefined ? {} : { reasoningEffort },
+    ...thinking === undefined ? {} : { thinking },
+  }
 }
 
 /**
- * Compare provider and model without comparing reasoning effort.
+ * Compare provider and model without comparing reasoning controls.
  * @param left - first selection.
  * @param right - second selection.
  * @returns whether both selections name the same route.
@@ -44,25 +55,33 @@ function sameRoute(left: ModelSelection, right: ModelSelection): boolean {
 }
 
 /**
- * Compare complete selections, treating absent effort as its own value.
+ * Compare complete selections, treating absent controls as their own values.
  * @param left - first selection, or no recorded selection.
  * @param right - second selection, or no recorded selection.
  * @returns whether both selections agree.
  */
 function sameModelSelection(left: ModelSelection | null, right: ModelSelection | null): boolean {
   return left === right || (left !== null && right !== null
-    && sameRoute(left, right) && left.reasoningEffort === right.reasoningEffort)
+    && sameRoute(left, right)
+    && left.reasoningEffort === right.reasoningEffort
+    && left.thinking === right.thinking)
 }
 
-/** Selection a recorded request used, omitting an effort the adapter defaulted. */
+/** Selection a recorded request used, omitting controls the adapter defaulted. */
 function selectionOfHeader({ config, adapterDefaults }: EpochHeader): ModelSelection {
-  return toSelection(config.provider, config.model, adapterDefaults?.reasoningEffort === true ? undefined : config.reasoningEffort)
+  return toSelection(
+    config.provider,
+    config.model,
+    adapterDefaults?.reasoningEffort === true ? undefined : config.reasoningEffort,
+    adapterDefaults?.thinking === true ? undefined : config.thinking,
+  )
 }
 
 const selectionSchema = z.object({
   provider: z.string().min(1),
   model: z.string().min(1),
   reasoningEffort: z.string().min(1).transform(ReasoningEffortId).exactOptional(),
+  thinking: z.boolean().exactOptional(),
 }).nullable()
 
 /**
@@ -71,7 +90,7 @@ const selectionSchema = z.object({
  */
 export const modelSelectionProjectionDefinition: Required<ProjectionDefinition<'modelSelection', ModelSelectionProjectionState>> = {
   key: 'modelSelection',
-  stateVersion: 3,
+  stateVersion: 4,
   stateSchema: z.object({ lastUsed: selectionSchema, pending: selectionSchema }),
   init: () => ({ lastUsed: null, pending: null }),
   apply: (state, event) => {
@@ -105,13 +124,18 @@ export class AgentModel implements Model {
   current(): Readonly<ModelSelection> | undefined {
     const recorded = this.recordedSelection()
     if (recorded !== null) return { ...recorded }
-    const { provider, model, reasoningEffort } = this.options
-    return provider && model ? toSelection(provider, model, reasoningEffort) : undefined
+    const { provider, model, reasoningEffort, thinking } = this.options
+    return provider && model ? toSelection(provider, model, reasoningEffort, thinking) : undefined
   }
 
   select(selection: Readonly<ModelSelection>): void {
     if (sameModelSelection(this.recordedSelection(), selection)) return
-    this.session.append('model/selection', toSelection(selection.provider, selection.model, selection.reasoningEffort))
+    this.session.append('model/selection', toSelection(
+      selection.provider,
+      selection.model,
+      selection.reasoningEffort,
+      selection.thinking,
+    ))
   }
 
   private recordedSelection(): ModelSelection | null {

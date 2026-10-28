@@ -132,6 +132,8 @@ providers:
 
 `reasoningEfforts` 声明模型可选择的 thinking 等级：每个键都是选择器提供的等级，其值是分派时在协议中发送的拼写，因此 `max: ultra` 可以为拥有自有词汇的网关重命名等级。省略该字段时保留已安装目录条目的能力；`false` 声明非推理模型。对于 pi-ai 无法识别的端点，`compat` 开关重塑请求——哪个角色携带系统提示词、哪个字段限制输出、thinking 等级如何传递——可逐路由、逐模型配置。条目与已安装目录都没有尺寸的模型，会采用路由的 `defaultContextWindow` 与 `defaultMaxTokens` 回退值。
 
+`openai-completions` 模型也可以改为声明 `thinking: false` 或 `thinking: true`。这是独立的 boolean 能力与请求默认值：选择器只提供 Thinking ON/OFF，每次请求都把所选值作为顶层 JSON `thinking` 字段发送。它不能与 `reasoningEfforts` 并存，不会从 `high` 等强度推导，并会在其他协议上被拒绝。网关部署默认值必须保持 OFF 时应使用 `thinking: false`。
+
 确切模型元数据将 `reasoning.efforts` 按可选强度从低到高排列。配置函数可从该列表中选择，再由 `prepareCall()` 校验具体强度。适配器只接收解析后的控制项。选择 `off` 不保证禁用推理：以省略推理字段表达该值的协议会沿用网关默认行为。所选等级下产生的推理 token 都计入该请求的输出上限。
 
 对于自托管 Chat Completions 端点，`thinkingTokenBudgetField` 选择推理预算参数，`vllmPriority` 在服务端启用优先级调度时设置整数调度优先级。模板参数接受 `$var: thinking.budget`。`openai-responses` 网关可设置 `supportsMaxOutputTokens: false` 来省略 `max_output_tokens`；Azure 与 Codex 传输会忽略这个共享兼容字段。这些控制均需显式启用；目录拥有的 Anthropic effort 和回退能力不是可配置开关。
@@ -286,6 +288,7 @@ pi-ai 事件变成 harness 的推理、文本、工具调用、用量与 finish 
 - **内置路由不携带登录**——`ollama-cloud` 像手工声明路由一样通过 `apiKeyEnv` 或进程环境认证，因为这里不为它提供任何授权流程。
 - **模态声明不受校验**——声明 `image` 而其网关不支持的模型会在提示词准入后被提供方拒绝。持久图片仍留在历史中，同一误声明模型可能再次失败；切换到纯文本模型仍然可行，因为共享 LLM 运行时会针对该请求把图片引用投影为稳定文本。
 - **未认证路由取决于其协议**——不点名凭据的路由解析为已配置但无密钥，但 pi-ai 的 OpenAI 兼容实现仍要求 API 密钥或 `Authorization` 标头，因此无密钥本地服务器需要由 `apiKeyEnv` 引用或 `headers` 中的 `Authorization` 条目提供的占位凭据。
+- **Boolean Thinking 由每个模型显式启用**——没有显式 `thinking` 声明的模型不显示 ON/OFF 控件，也不发送 boolean 字段。该声明只用于顶层 boolean 的 Chat Completions 网关；reasoning effort 仍是独立契约。
 - **peak 路由不记录它实际使用的后端**——窗口内处理的请求仍记录配置路由，因此具体提供方只能在该提供方自身的用量记录中看到。
 - **高峰时段是目录数据**——部署无法设置高峰窗口的小时与星期几，因为它们属于提供方公布的价格政策；本构建未随附其政策的模型不能被路由。
 - **不支持 `GenerateOptions.stop`**——pi-ai 的通用流式选项无法跨提供方保证停止序列行为。

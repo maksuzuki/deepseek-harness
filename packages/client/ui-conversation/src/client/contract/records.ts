@@ -17,7 +17,7 @@ export interface AssistantRequestConfig {
   provider: string
   model: string
   purpose?: string
-  thinking?: string
+  thinking?: boolean
   reasoningEffort?: string
   temperature?: number
   maxTokens?: number

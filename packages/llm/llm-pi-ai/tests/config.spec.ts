@@ -57,6 +57,17 @@ describe('reasoning schema boundary', () => {
   })
 })
 
+describe('boolean thinking schema boundary', () => {
+  it('preserves true and false while rejecting non-boolean values', () => {
+    type Materialized = { providers: Record<string, { models?: { thinking?: unknown }[] }> }
+    for (const thinking of [false, true]) {
+      const materialized = configWith({ thinking })() as Materialized
+      expect(materialized.providers['acme-gateway']?.models?.[0]?.thinking).toBe(thinking)
+    }
+    expect(configWith({ thinking: 'high' })).toThrow()
+  })
+})
+
 describe('modality schema boundary', () => {
   it('rejects a modality pi-ai does not know, at either level', () => {
     expect(configWith({ input: ['audio'] })).toThrow(/expected/)

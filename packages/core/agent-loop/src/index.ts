@@ -300,6 +300,7 @@ export class AgentLoop extends Service implements AgentFactory {
       provider: z.string(),
       model: z.string(),
       reasoningEffort: z.string().min(1) as z<ReturnType<typeof ReasoningEffortId>>,
+      thinking: z.boolean(),
       maxTokens: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER),
       cwd: z.string(),
       resumeSessionId: z.string(),
@@ -371,14 +372,24 @@ export class AgentLoop extends Service implements AgentFactory {
   }
 
   private applyConfiguredRoute(agent: Agent, options: AgentOptions): void {
-    const { provider, model, reasoningEffort } = options
+    const { provider, model, reasoningEffort, thinking } = options
     if (!provider || !model) return
     const previous = agent.model.current()
-    const selection: ModelSelection = { provider, model, ...reasoningEffort === undefined ? {} : { reasoningEffort } }
+    const selection: ModelSelection = {
+      provider,
+      model,
+      ...reasoningEffort === undefined ? {} : { reasoningEffort },
+      ...thinking === undefined ? {} : { thinking },
+    }
     if (selection.reasoningEffort === undefined && previous !== undefined
       && previous.provider === selection.provider && previous.model === selection.model
       && previous.reasoningEffort !== undefined) {
       selection.reasoningEffort = previous.reasoningEffort
+    }
+    if (selection.thinking === undefined && previous !== undefined
+      && previous.provider === selection.provider && previous.model === selection.model
+      && previous.thinking !== undefined) {
+      selection.thinking = previous.thinking
     }
     agent.model.select(selection)
   }

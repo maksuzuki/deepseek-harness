@@ -44,6 +44,7 @@ export async function buildModelCatalog(
           name: model.name,
           ...(model.description === undefined ? {} : { description: model.description }),
           ...(reasoning === undefined ? {} : { reasoning }),
+          ...(resolved.thinking === undefined ? {} : { thinking: { default: resolved.thinking.default } }),
           ...(resolved.routing === undefined ? {} : { routing: resolved.routing }),
         }
       }))

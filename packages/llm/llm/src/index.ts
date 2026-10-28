@@ -872,6 +872,18 @@ export class LlmRuntime extends TypertRemoteService {
         'INVALID_MODEL_MAX_TOKENS',
       )
     }
+    const thinking: unknown = resolved.thinking
+    let thinkingDefault: boolean | undefined
+    if (thinking !== undefined) {
+      if (thinking === null || typeof thinking !== 'object'
+        || !('default' in thinking) || typeof thinking.default !== 'boolean') {
+        throw new LlmError(
+          `adapter returned invalid boolean Thinking metadata for provider "${provider}" model "${model}"`,
+          'INVALID_MODEL_THINKING',
+        )
+      }
+      thinkingDefault = thinking.default
+    }
     const info: LlmResolvedModelInfo = {
       provider,
       id: model,
@@ -881,6 +893,7 @@ export class LlmRuntime extends TypertRemoteService {
       ...routing === undefined ? {} : { routing },
       ...context === undefined ? {} : { context: { contextWindow: context.contextWindow } },
       ...defaultMaxTokens === undefined ? {} : { defaultMaxTokens },
+      ...thinkingDefault === undefined ? {} : { thinking: { default: thinkingDefault } },
       ...resolved.systemPromptUpdate === undefined ? {} : { systemPromptUpdate: resolved.systemPromptUpdate },
       ...resolved.toolUpdate === undefined ? {} : { toolUpdate: resolved.toolUpdate },
     }
@@ -957,9 +970,20 @@ export class LlmRuntime extends TypertRemoteService {
     config: LlmCallConfig,
     info: LlmResolvedModelInfo,
   ): { config: LlmCallConfig; context?: LlmModelContext; modelInfo: LlmResolvedModelInfo } {
-    const defaulted = config.maxTokens === undefined && info.defaultMaxTokens !== undefined
+    let defaulted = config.maxTokens === undefined && info.defaultMaxTokens !== undefined
       ? { ...config, maxTokens: info.defaultMaxTokens }
       : config
+    const thinking = info.thinking
+    if (thinking === undefined) {
+      if (defaulted.thinking !== undefined) {
+        throw new LlmError(
+          `provider "${config.provider}" model "${config.model}" does not support boolean Thinking`,
+          'UNSUPPORTED_THINKING',
+        )
+      }
+    } else if (defaulted.thinking === undefined) {
+      defaulted = { ...defaulted, thinking: thinking.default }
+    }
     const reasoning = info.reasoning
     const requested = defaulted.reasoningEffort
     let resolvedConfig = defaulted
@@ -1024,6 +1048,9 @@ export class LlmRuntime extends TypertRemoteService {
     const adapterDefaults = deepFreeze<LlmCallConfigAdapterDefaults>({
       ...proposed.reasoningEffort === undefined && resolvedConfig.reasoningEffort !== undefined
         ? { reasoningEffort: true }
+        : {},
+      ...proposed.thinking === undefined && resolvedConfig.thinking !== undefined
+        ? { thinking: true }
         : {},
       ...proposed.maxTokens === undefined && resolvedConfig.maxTokens !== undefined
         ? { maxTokens: true }

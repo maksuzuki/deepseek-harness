@@ -651,6 +651,11 @@ export interface PiAiModelProfile {
    * declares the offered levels and their wire spellings.
    */
   reasoningEfforts?: false | PiAiReasoningEfforts
+  /**
+   * Default for an explicit top-level boolean `thinking` request field. Presence
+   * declares the capability; only OpenAI Chat Completions routes may declare it.
+   */
+  thinking?: boolean
   /** pi-ai wire-compatibility switches for this model, winning over the route's per field; one its protocol does not declare is refused. */
   compat?: PiAiCompatProfile
   /**
@@ -867,6 +872,8 @@ export interface RouteCatalog {
    * picked, so only an explicit configuration lands here.
    */
   configuredMaxTokens: ReadonlyMap<string, number>
+  /** Default boolean Thinking value for models that explicitly support the top-level field. */
+  thinkingDefaults: ReadonlyMap<string, boolean>
   /** Validated peak windows by model id; empty when no entry declares one. */
   peak: ReadonlyMap<string, readonly PiAiPeakWindow[]>
 }
@@ -973,6 +980,7 @@ export function resolveRouteModels(
   assertOfferedCompatFields(provider, 'route', request.compat)
   const seen = new Set<string>()
   const configuredMaxTokens = new Map<string, number>()
+  const thinkingDefaults = new Map<string, boolean>()
   const peak = new Map<string, readonly PiAiPeakWindow[]>()
   const resolveEntry = (entry: PiAiModelProfile): Model<Api> => {
     assertOfferedCompatFields(provider, `model "${entry.id}"`, entry.compat)
@@ -1013,6 +1021,18 @@ export function resolveRouteModels(
     // Only a value the profile named is a deployment choice; the catalog's is
     // the model's capability and stays out of request defaults.
     if (entry.maxTokens !== undefined) configuredMaxTokens.set(entry.id, entry.maxTokens)
+    const reasoning = resolveModelReasoning(provider, entry, base)
+    if (entry.thinking !== undefined) {
+      if (api !== 'openai-completions') {
+        invalid(provider, `model "${entry.id}" declares boolean Thinking, but its api is "${api}"; only`
+          + ' openai-completions sends the top-level boolean field')
+      }
+      if (reasoning.reasoning) {
+        invalid(provider, `model "${entry.id}" declares both boolean Thinking and reasoning efforts; expose only`
+          + ' the control the endpoint actually accepts')
+      }
+      thinkingDefaults.set(entry.id, entry.thinking)
+    }
     return {
       // The installed entry lays the floor, and the fields below override it.
       // Enumerating instead would silently drop every `Model` field this
@@ -1029,7 +1049,7 @@ export function resolveRouteModels(
       cost: base?.cost ?? NO_COST,
       contextWindow,
       maxTokens,
-      ...resolveModelReasoning(provider, entry, base),
+      ...reasoning,
       ...resolveModelCompat(provider, entry, request.compat, base, api),
     }
   }
@@ -1061,6 +1081,7 @@ export function resolveRouteModels(
   return {
     models: serviceableModels,
     configuredMaxTokens,
+    thinkingDefaults: new Map([...thinkingDefaults].filter(([id]) => serviceableIds.has(id))),
     modelErrors,
     peak: new Map([...peak].filter(([id]) => serviceableIds.has(id))),
   }
