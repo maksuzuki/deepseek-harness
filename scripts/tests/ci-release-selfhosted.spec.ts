@@ -163,8 +163,17 @@ for (const [file, jobIds] of [['release.yml', ['dependencies', 'pack']], ['relea
   })
 }
 
-it.each(['release-publish.yml', 'release-vendor-publish.yml'])('keeps %s manual and entirely hosted', (file) => {
+it.each(['release-publish.yml', 'release-vendor-publish.yml'])('keeps %s manual and hosted unless the failover switch selects the pool', (file) => {
   const publish = workflow(file)
   expect(Object.keys(publish.on)).toEqual(['workflow_dispatch'])
-  for (const job of Object.values(publish.jobs)) expect(job['runs-on']).toBe(hosted)
+  for (const job of Object.values(publish.jobs)) {
+    const runsOn = job['runs-on']
+    if (runsOn === hosted) continue
+    // A publication job that leaves the hosted pool does so through the same
+    // failover expression the release workflows use: the switch, the
+    // repository, the actor, and the event decide, and the hosted label stays
+    // the fallback every other environment takes.
+    expect(runsOn).toContain("vars.DSH_CI_FAILOVER_LINUX == 'selfhosted'")
+    expect(runsOn).toContain(`|| '${hosted}'`)
+  }
 })

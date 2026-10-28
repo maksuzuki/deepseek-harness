@@ -14,6 +14,9 @@
     - button "查看 网页搜索": 网页搜索
     - text: 设置 DeepSeek 的搜索提供方。
   - listitem:
+    - button "查看 Ollama Cloud 搜索": Ollama Cloud 搜索
+    - text: 设置 Ollama Cloud 的网页搜索与抓取提供方。
+  - listitem:
     - button "查看 Agent 循环": Agent 循环
     - text: 控制 Agent 派发工具调用的方式。
   - listitem:

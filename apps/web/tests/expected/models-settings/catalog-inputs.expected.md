@@ -43,7 +43,7 @@
           - button "删除模型 1"
           - text: 上下文窗口
           - textbox "上下文窗口 1":
-            - /placeholder: 1M
+            - /placeholder: 272K
             - text: 272K
           - text: 最大输出 token 数
           - textbox "最大输出 token 数 1":
