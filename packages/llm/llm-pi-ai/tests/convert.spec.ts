@@ -6,6 +6,7 @@ import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { AssistantMessage, AssistantMessageEvent, Usage } from '@earendil-works/pi-ai'
 import { transformMessages } from '@earendil-works/pi-ai/api/transform-messages'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
+import { calculateContextTokens } from '@earendil-works/pi-ai/utils/estimate'
 import { toPiContext } from '../src/context.ts'
 import { toPiReplayState } from '../src/replay.ts'
 import { mapStopReason, mapUsage, toStreamChunks } from '../src/stream.ts'
@@ -364,6 +365,7 @@ describe('toPiContext', () => {
       responseModel: 'gpt-5-2026-01-01',
       responseId: 'resp_123',
       stopReason: 'toolUse',
+      usage: { ...usage(10_000, 100, 72), totalTokens: 12_345 },
       content: [
         { type: 'thinking', thinking: 'private reasoning', thinkingSignature: 'think-sig', redacted: true },
         { type: 'text', text: 'calling', textSignature: 'text-sig' },
@@ -401,6 +403,10 @@ describe('toPiContext', () => {
         { type: 'toolCall', id: 'c1', name: 'f', arguments: { a: 1 }, thoughtSignature: 'tool-sig', namespace: 'functions' },
       ],
     })
+    const replayed = context.messages[0]
+    if (replayed?.role !== 'assistant') throw new Error('expected replayed assistant message')
+    expect(replayed.usage).toMatchObject({ input: 10_000, output: 100, cacheRead: 72, totalTokens: 12_345 })
+    expect(calculateContextTokens(replayed.usage)).toBe(12_345)
   })
 
   it.each(['high', ''])('preserves provider thinking level %j through durable projection and replay', (providerThinkingLevel) => {
@@ -440,6 +446,15 @@ describe('toPiContext', () => {
       content: [{ type: 'text', text: 'done' }],
     })
     expect(onDegrade).not.toHaveBeenCalled()
+  })
+
+  it('omits malformed provider usage without discarding replay metadata', () => {
+    const state = toPiReplayState(assistant({
+      usage: { ...usage(3, 2), input: Number.NaN },
+      content: [{ type: 'text', text: 'done' }],
+    }))
+    expect(state.response).not.toHaveProperty('usage')
+    expect(state).toMatchObject({ blocks: [{ type: 'text' }] })
   })
 
   it('replays saved v2 Anthropic alias metadata with the requested model and signed thinking', () => {
@@ -670,6 +685,9 @@ describe('toPiContext', () => {
     ['non-string response id', { ...validReplay, response: { ...validResponse, responseId: 1 } }, 'responseId must be a string'],
     ['non-string provider thinking level', { ...validReplay, response: { ...validResponse, providerThinkingLevel: 1 } }, 'providerThinkingLevel must be a string'],
     ['null provider thinking level', { ...validReplay, response: { ...validResponse, providerThinkingLevel: null } }, 'providerThinkingLevel must be a string'],
+    ['array usage', { ...validReplay, response: { ...validResponse, usage: [] } }, 'usage must be an object'],
+    ['negative usage input', { ...validReplay, response: { ...validResponse, usage: { input: -1, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 } } }, 'usage input must be a non-negative safe integer'],
+    ['zero usage', { ...validReplay, response: { ...validResponse, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 } } }, 'usage must report positive context tokens'],
     ['missing blocks', { response: validResponse }, 'blocks must be an array'],
     ['non-array blocks', { ...validReplay, blocks: 'text' }, 'blocks must be an array'],
     ['number block', { ...validReplay, blocks: [1] }, 'block 0 must be an object'],
@@ -756,6 +774,7 @@ describe('toStreamChunks', () => {
             api: 'openai-completions',
             provider: 'deepseek',
             model: 'deepseek-v4-flash',
+            usage: { input: 3, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 5 },
             stopReason: 'stop',
           },
           blocks: [{ type: 'text' }],

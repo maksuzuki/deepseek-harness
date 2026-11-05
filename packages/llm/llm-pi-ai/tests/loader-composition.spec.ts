@@ -207,6 +207,7 @@ describe('llm-pi-ai real dormant composition', () => {
           api: 'openai-completions',
           provider: 'deepseek',
           model: 'deepseek-flash',
+          usage: { input: 3, output: 4, cacheRead: 0, cacheWrite: 0, totalTokens: 7 },
           stopReason: 'length',
         },
         blocks: [{ type: 'text' }],

@@ -11,12 +11,22 @@
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { AssistantMessage as HarnessAssistantMessage, ModelMessageSource, ReplayEnvelope } from '@deepseek-ai/dsh-llm'
 import type { Api, AssistantMessage, ToolCall, Usage as PiUsage } from '@earendil-works/pi-ai'
+import { calculateContextTokens } from '@earendil-works/pi-ai/utils/estimate'
 
 /** Per-block half of the pi-ai replay envelope, one entry per content block. */
 export type PiAiReplayBlock =
   | { type: 'text'; textSignature?: string }
   | { type: 'reasoning'; thinkingSignature?: string; redacted?: boolean }
   | { type: 'tool-call'; thoughtSignature?: string; namespace?: string }
+
+/** Provider-reported token counts needed to reuse an exact completed prefix. */
+interface PiAiReplayUsage {
+  input: number
+  output: number
+  cacheRead: number
+  cacheWrite: number
+  totalTokens: number
+}
 
 /** Versioned response-level half of the pi-ai replay envelope. */
 export interface PiAiReplayResponse {
@@ -31,6 +41,8 @@ export interface PiAiReplayResponse {
   responseId?: string
   /** Provider-native effort for historical replay; absence is preserved. */
   providerThinkingLevel?: string
+  /** Exact token usage through this response, when the provider reported it. */
+  usage?: PiAiReplayUsage
   stopReason: AssistantMessage['stopReason']
 }
 
@@ -53,15 +65,29 @@ function parseArguments(raw: string): ToolCall['arguments'] {
   return {}
 }
 
-/** Construct the zero usage value required by historical pi-ai messages. */
-function emptyPiUsage(): PiUsage {
+/** Construct the usage value required by historical pi-ai messages. */
+function replayUsage(usage?: PiAiReplayUsage): PiUsage {
   return {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    totalTokens: 0,
+    input: usage?.input ?? 0,
+    output: usage?.output ?? 0,
+    cacheRead: usage?.cacheRead ?? 0,
+    cacheWrite: usage?.cacheWrite ?? 0,
+    totalTokens: usage?.totalTokens ?? 0,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  }
+}
+
+/** Retain only provider usage that can be replayed as trusted token counts. */
+function replayUsageOf(usage: PiUsage): PiAiReplayUsage | undefined {
+  const values = [usage.input, usage.output, usage.cacheRead, usage.cacheWrite, usage.totalTokens]
+  if (values.some(value => !Number.isSafeInteger(value) || value < 0)) return undefined
+  if (calculateContextTokens(usage) <= 0) return undefined
+  return {
+    input: usage.input,
+    output: usage.output,
+    cacheRead: usage.cacheRead,
+    cacheWrite: usage.cacheWrite,
+    totalTokens: usage.totalTokens,
   }
 }
 
@@ -75,6 +101,7 @@ function emptyPiUsage(): PiUsage {
  * @returns the versioned lossless-JSON replay projection.
  */
 export function toPiReplayState(message: AssistantMessage, requestedModel = message.model): ReplayEnvelope {
+  const usage = replayUsageOf(message.usage)
   const response: PiAiReplayResponse = {
     kind: 'pi-ai',
     version: 2,
@@ -84,6 +111,7 @@ export function toPiReplayState(message: AssistantMessage, requestedModel = mess
     ...message.responseModel === undefined ? {} : { responseModel: message.responseModel },
     ...message.responseId === undefined ? {} : { responseId: message.responseId },
     ...message.providerThinkingLevel === undefined ? {} : { providerThinkingLevel: message.providerThinkingLevel },
+    ...usage === undefined ? {} : { usage },
     stopReason: message.stopReason,
   }
   return {
@@ -131,6 +159,29 @@ function readReplayState(value: unknown): PiAiReplayState {
   if (response['responseModel'] !== undefined && typeof response['responseModel'] !== 'string') return invalidReplay('responseModel must be a string')
   if (response['responseId'] !== undefined && typeof response['responseId'] !== 'string') return invalidReplay('responseId must be a string')
   if (response['providerThinkingLevel'] !== undefined && typeof response['providerThinkingLevel'] !== 'string') return invalidReplay('providerThinkingLevel must be a string')
+  const rawUsage = response['usage']
+  let usage: PiAiReplayUsage | undefined
+  if (rawUsage !== undefined) {
+    if (typeof rawUsage !== 'object' || rawUsage === null || Array.isArray(rawUsage)) return invalidReplay('usage must be an object')
+    const record = rawUsage as Record<string, unknown>
+    const count = (key: keyof PiAiReplayUsage): number => {
+      const value = record[key]
+      if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+        return invalidReplay(`usage ${key} must be a non-negative safe integer`)
+      }
+      return value
+    }
+    usage = {
+      input: count('input'),
+      output: count('output'),
+      cacheRead: count('cacheRead'),
+      cacheWrite: count('cacheWrite'),
+      totalTokens: count('totalTokens'),
+    }
+    if (calculateContextTokens({ ...usage, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }) <= 0) {
+      return invalidReplay('usage must report positive context tokens')
+    }
+  }
   const blocks = envelope['blocks']
   if (!Array.isArray(blocks)) return invalidReplay('blocks must be an array')
   for (const [index, value] of blocks.entries()) {
@@ -143,7 +194,7 @@ function readReplayState(value: unknown): PiAiReplayState {
     if (block['redacted'] !== undefined && typeof block['redacted'] !== 'boolean') return invalidReplay(`block ${index} redacted must be boolean`)
   }
   return {
-    response: response as unknown as PiAiReplayResponse,
+    response: { ...response as unknown as PiAiReplayResponse, ...usage === undefined ? {} : { usage } },
     blocks: blocks as PiAiReplayBlock[],
   }
 }
@@ -177,7 +228,7 @@ function foreignAssistant(message: HarnessAssistantMessage): AssistantMessage {
     api: 'dsh-foreign',
     provider: source.provider,
     model: source.model,
-    usage: emptyPiUsage(),
+    usage: replayUsage(),
     stopReason: content.some(piece => piece.type === 'toolCall') ? 'toolUse' : 'stop',
     timestamp: 0,
   }
@@ -225,7 +276,7 @@ function replayedAssistant(message: HarnessAssistantMessage, source: ModelMessag
     ...state.response.responseModel === undefined ? {} : { responseModel: state.response.responseModel },
     ...state.response.responseId === undefined ? {} : { responseId: state.response.responseId },
     ...state.response.providerThinkingLevel === undefined ? {} : { providerThinkingLevel: state.response.providerThinkingLevel },
-    usage: emptyPiUsage(),
+    usage: replayUsage(state.response.usage),
     stopReason: state.response.stopReason,
     timestamp: 0,
   }
