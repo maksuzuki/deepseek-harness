@@ -65,6 +65,7 @@ import { catalogModels } from './catalog.ts'
 import { catalogAlternateProfile } from './config.ts'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { requestImageTarget, toPiContext } from './context.ts'
+import { assertUsefulContextCapacity } from './context-budget.ts'
 import { conversationUpdates, createModels, getSupportedThinkingLevels } from './models.ts'
 import { selectPeakWindow } from './peak.ts'
 import { buildProvider } from './provider.ts'
@@ -590,11 +591,13 @@ export class PiAiAdapter extends LlmAdapter {
             maxBytes: profile.requestImageMaxBytes,
           },
         }, onReplayDegrade, updates.systemPromptUpdate === 'in-history')
+      const maxTokens = options.maxTokens ?? model.maxTokens
+      assertUsefulContextCapacity(model, context, maxTokens)
       const events = snapshot.models.streamSimple(model, context, {
         ...profileOptions(profile, reasoning, apiKey),
         ...thinking === undefined ? {} : { samplingParams: { thinking } },
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
-        ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
+        ...options.maxTokens === undefined ? {} : { maxTokens },
         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
         signal: watchdog.signal,
         // Profile headers are deployment-owned; attribution names are

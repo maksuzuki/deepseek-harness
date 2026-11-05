@@ -638,7 +638,7 @@ describe('dsh web keyless CLI smoke', () => {
     }
   }, 120_000)
 
-  it('keeps a 2,048-token output cap for one image and the Standard tools in a 16K model request', async () => {
+  it('keeps the context reserve when a 16K image and Standard-tools request reaches provider wire', async () => {
     requireDist()
     const workspace = mkdtempSync(join(tmpdir(), 'dsh-web-context-budget-'))
     interface CapturedRequest {
@@ -729,7 +729,10 @@ describe('dsh web keyless CLI smoke', () => {
           setTimeout(() => { reject(new Error('provider request not received in 15s')) }, 15_000).unref()
         }),
       ])
-      expect(captured.max_completion_tokens).toBe(2048)
+      expect(captured.max_completion_tokens).toEqual(expect.any(Number))
+      if (typeof captured.max_completion_tokens !== 'number') throw new Error('expected a numeric output cap')
+      expect(captured.max_completion_tokens).toBeGreaterThanOrEqual(2)
+      expect(captured.max_completion_tokens).toBeLessThan(2048)
       expect(captured.tools).toHaveLength(31)
       expect(captured.thinking).toBe(false)
       expect(JSON.stringify(captured.messages)).toContain('data:image/png;base64,')

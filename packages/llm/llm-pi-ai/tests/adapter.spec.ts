@@ -9,12 +9,13 @@ import type {
   SaveImageAttachment,
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import LlmRuntime, { createToolResultMessage, createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createAssistantMessage, createToolResultMessage, createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, ToolCallId, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { DEFAULT_MAX_REQUEST_IMAGE_BYTES, resolveProfiles } from '../src/config.ts'
+import { toPiReplayState } from '../src/replay.ts'
 import { memoryAuth } from './auth-double.ts'
 import { assemble } from './assemble.ts'
 import { anthropicTextEvents, closeMockServers, mockServer, textEvents } from './mock-server.ts'
@@ -262,8 +263,53 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.requests).toEqual([])
   })
 
-  it('reports an estimated context overflow before network I/O', async () => {
-    const server = await mockServer([])
+  it.each(['openai-completions', 'openai-responses', 'anthropic-messages'] as const)(
+    'reports an estimated context overflow before %s network I/O',
+    async (api) => {
+      const server = await mockServer([])
+      const ctx = new Context()
+      await ctx.plugin(LlmRuntime)
+      await ctx.plugin(LlmPiAi, {
+        providers: {
+          gateway: {
+            apiKeyEnv: 'PI_TEST_KEY',
+            api,
+            baseURL: `${server.url}/v1`,
+            models: [{
+              id: 'vision-16k',
+              contextWindow: 16_384,
+              maxTokens: 2048,
+              input: ['text', 'image'],
+            }],
+          },
+        },
+      })
+
+      const result = await assemble(ctx, {
+        provider: 'gateway',
+        model: 'vision-16k',
+        maxTokens: 2048,
+        messages: [createUserMessage({
+          content: [{ type: 'text', text: 'u'.repeat(52_500) }],
+          source: { kind: 'user' },
+        })],
+      })
+
+      expect(result.finish).toMatchObject({
+        kind: 'error',
+        failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE },
+      })
+      expect(server.requests).toEqual([])
+    },
+  )
+
+  it('uses replayed provider usage and clamps as a Tool result grows', async () => {
+    const server = await mockServer([
+      { events: textEvents },
+      { events: textEvents },
+      { events: textEvents },
+      { events: textEvents },
+    ])
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(LlmPiAi, {
@@ -272,31 +318,55 @@ describe('PiAiAdapter provider routing', () => {
           apiKeyEnv: 'PI_TEST_KEY',
           api: 'openai-completions',
           baseURL: `${server.url}/v1`,
-          models: [{
-            id: 'vision-16k',
-            contextWindow: 16_384,
-            maxTokens: 2048,
-            input: ['text', 'image'],
-          }],
+          models: [{ id: 'vision-16k', contextWindow: 16_384, maxTokens: 2048 }],
         },
       },
     })
-
-    const result = await assemble(ctx, {
+    const callId = ToolCallId('call-1')
+    const replayState = toPiReplayState({
+      role: 'assistant',
+      content: [{ type: 'toolCall', id: callId, name: 'inspect', arguments: {} }],
+      api: 'openai-completions',
       provider: 'gateway',
       model: 'vision-16k',
-      maxTokens: 2048,
-      messages: [createUserMessage({
-        content: [{ type: 'text', text: 'u'.repeat(52_500) }],
-        source: { kind: 'user' },
-      })],
+      usage: {
+        input: 10_172,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 10_172,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: 'toolUse',
+      timestamp: 0,
+    })
+    const messages = (resultChars: number) => [
+      createAssistantMessage({
+        content: [{ type: 'tool-call', id: callId, name: 'inspect', arguments: '{}' }],
+        source: { provider: 'gateway', model: 'vision-16k', replayState },
+      }),
+      createToolResultMessage({
+        callId,
+        content: [{ type: 'text', text: 'r'.repeat(resultChars) }],
+        isError: false,
+      }),
+    ]
+
+    await assemble(ctx, { provider: 'gateway', model: 'vision-16k', maxTokens: 2048, messages: messages(238) })
+    await assemble(ctx, { provider: 'gateway', model: 'vision-16k', maxTokens: 2048, messages: messages(245) })
+    await assemble(ctx, { provider: 'gateway', model: 'vision-16k', messages: messages(238) })
+    await assemble(ctx, { provider: 'gateway', model: 'vision-16k', maxTokens: 3000, messages: messages(238) })
+    const overflow = await assemble(ctx, {
+      provider: 'gateway', model: 'vision-16k', maxTokens: 2048, messages: messages(7400),
     })
 
-    expect(result.finish).toMatchObject({
-      kind: 'error',
-      failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE },
-    })
-    expect(server.requests).toEqual([])
+    expect(server.requests).toMatchObject([
+      { max_completion_tokens: 2048 },
+      { max_completion_tokens: 2046 },
+      { max_completion_tokens: 2048 },
+      { max_completion_tokens: 2048 },
+    ])
+    expect(overflow.finish).toMatchObject({ kind: 'error', failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE } })
   })
 
   it('uses the catalog API implementation, including OpenAI Responses', async () => {
