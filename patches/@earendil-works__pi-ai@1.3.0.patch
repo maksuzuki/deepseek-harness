@@ -94,7 +94,7 @@ index 6d43525..b932b92 100644
 +    // reserve conflicts; the provider still enforces its exact context window.
 +    if (estimatedInput + maxTokens <= model.contextWindow)
 +        return maxTokens;
-+    if (available > 0)
++    if (available > MIN_MAX_TOKENS)
 +        return Math.min(maxTokens, available);
 +    throw new RangeError(`Input exceeds the model's context window for "${model.id}": estimated ${estimatedInput} input + ${maxTokens} output > ${model.contextWindow}`);
  }

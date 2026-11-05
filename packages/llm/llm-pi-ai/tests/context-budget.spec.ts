@@ -133,11 +133,11 @@ describe('patched pi-ai context output budget', () => {
     expect(() => clampMaxTokensToContext(model(), context, 4097)).toThrow(RangeError)
   })
 
-  it('retains the safety clamp at one available output token', () => {
+  it('throws when the safety-adjusted available output is one token', () => {
     const context = textContext(12_287)
 
     expect(16_384 - estimateContextTokens(context).tokens - 4096).toBe(1)
-    expect(clampMaxTokensToContext(model(), context, 4098)).toBe(1)
+    expect(() => clampMaxTokensToContext(model(), context, 4098)).toThrow(RangeError)
   })
 
   it('retains the positive output floor when the context window is unknown', () => {

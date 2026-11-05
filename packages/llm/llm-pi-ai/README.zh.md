@@ -150,7 +150,7 @@ providers:
 
 pi-ai 不提供且本构建未内置的路由需要 `api`、`baseURL` 与非空 `models` 列表；无法服务的 profile 会在写入处被拒绝，并点名路由与模型。内置路由无需其中任何一项，仅声明凭据的 profile 即按原样可服务。失败携带稳定 code：无法使用的凭据以 `INVALID_CREDENTIAL` 失败并点名路由与引用，`apiKeyEnv` 引用解析为空的路由以 `MISSING_CREDENTIAL` 失败，未配置模型以 `UNKNOWN_MODEL` 失败，终止性提供方失败则区分 `QUOTA` 与暂时性 `RATE_LIMIT`。`GenerateOptions.stop` 以 `UNSUPPORTED_OPTION` 被拒绝，因为 pi-ai 的通用流式 UI 无法跨提供方保证它。
 
-pi-ai 在缩减输出上限前预留 4,096 个估算输入 token。当只有这段预留与请求输出冲突时，适配器保留请求的上限而不缩减；当请求输出无法放入窗口时，沿用普通安全缩减。如果预留后没有正数输出容量，请求会在网络 I/O 前以 `CONTEXT_WINDOW_EXCEEDED` 失败，而不是开始一次单 token 推理。
+pi-ai 在缩减输出上限前预留 4,096 个估算输入 token。当只有这段预留与请求输出冲突时，适配器保留请求的上限而不缩减；当请求输出无法放入窗口时，沿用普通安全缩减。如果预留后最多只剩一个输出 token，请求会在网络 I/O 前以 `CONTEXT_WINDOW_EXCEEDED` 失败，而不是开始一次单 token 推理。
 
 Config 更新严格验证发生变化的 provider。初始加载将已存储的目录故障保留为可编辑的 provider 诊断；未更改的故障 provider 不阻止其他编辑。可用模型仍可选择，无法解析的模型在网络 I/O 前失败。修复或删除问题配置会清除其诊断。
 
