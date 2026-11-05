@@ -73,6 +73,33 @@ index 0eeaffa..2e13492 100644
                      };
                  });
              }
+diff --git a/dist/api/simple-options.js b/dist/api/simple-options.js
+index 6d43525..b932b92 100644
+--- a/dist/api/simple-options.js
++++ b/dist/api/simple-options.js
+@@ -1,12 +1,20 @@
+ import { clampThinkingLevel } from "../models.js";
+ import { estimateContextTokens } from "../utils/estimate.js";
+ const CONTEXT_SAFETY_TOKENS = 4096;
+ const MIN_MAX_TOKENS = 1;
+ export function clampMaxTokensToContext(model, context, maxTokens) {
+     if (model.contextWindow <= 0)
+         return Math.max(MIN_MAX_TOKENS, maxTokens);
+-    const available = model.contextWindow - estimateContextTokens(context).tokens - CONTEXT_SAFETY_TOKENS;
+-    return Math.min(maxTokens, Math.max(MIN_MAX_TOKENS, available));
++    const estimatedInput = estimateContextTokens(context).tokens;
++    const available = model.contextWindow - estimatedInput - CONTEXT_SAFETY_TOKENS;
++    // The fixed estimate can overcount tool schemas and visual input by thousands
++    // of tokens. Preserve the requested ceiling when only the additional safety
++    // reserve conflicts; the provider still enforces its exact context window.
++    if (estimatedInput + maxTokens <= model.contextWindow)
++        return maxTokens;
++    if (available > 0)
++        return Math.min(maxTokens, available);
++    throw new RangeError(`Input exceeds the model's context window for "${model.id}": estimated ${estimatedInput} input + ${maxTokens} output > ${model.contextWindow}`);
+ }
+ export function resolveSamplingParams(model, thinkingLevel, requestParams) {
+     const effectiveThinkingLevel = clampThinkingLevel(model, thinkingLevel);
 diff --git a/dist/api/openai-responses-shared.js b/dist/api/openai-responses-shared.js
 index af5f042..b9f00fb 100644
 --- a/dist/api/openai-responses-shared.js

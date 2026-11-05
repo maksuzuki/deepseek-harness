@@ -57,6 +57,17 @@ function chatCompletionsResponse(text: string): string {
   ].map(event => `data: ${JSON.stringify(event)}\n\n`).join('') + 'data: [DONE]\n\n'
 }
 
+/** Paste one PNG into the real Web composer through its browser intake path. */
+async function pastePng(page: Page, bytes: Uint8Array): Promise<void> {
+  await page.locator('[data-composer-input]').first().evaluate((surface, data) => {
+    const transfer = new DataTransfer()
+    transfer.items.add(new File([new Uint8Array(data)], 'context-budget.png', { type: 'image/png' }))
+    surface.dispatchEvent(new ClipboardEvent('paste', {
+      clipboardData: transfer, bubbles: true, cancelable: true,
+    }))
+  }, [...bytes])
+}
+
 /** Exchange a printed process token once for Node-side HTTP/WebSocket probes. */
 function authenticatedWeb(launchUrl: string): Promise<{ origin: string; cookie: string }> {
   const existing = authenticatedCookies.get(launchUrl)
@@ -622,6 +633,113 @@ describe('dsh web keyless CLI smoke', () => {
       expect(captured.map(request => request.tools?.length)).toEqual([31, 31, 31])
     } finally {
       await stop(child)
+      await new Promise<void>(resolveClose => provider.close(() => { resolveClose() }))
+      rmSync(workspace, { recursive: true, force: true })
+    }
+  }, 120_000)
+
+  it('keeps a 2,048-token output cap for one image and the Standard tools in a 16K model request', async () => {
+    requireDist()
+    const workspace = mkdtempSync(join(tmpdir(), 'dsh-web-context-budget-'))
+    interface CapturedRequest {
+      readonly max_completion_tokens?: unknown
+      readonly messages?: unknown[]
+      readonly thinking?: unknown
+      readonly tools?: unknown[]
+    }
+    let resolveRequest!: (request: CapturedRequest) => void
+    const received = new Promise<CapturedRequest>((resolve) => { resolveRequest = resolve })
+    const provider = createServer((request, response) => {
+      let body = ''
+      request.setEncoding('utf8')
+      request.on('data', (chunk: string) => { body += chunk })
+      request.on('end', () => {
+        const parsed = JSON.parse(body) as CapturedRequest
+        if (parsed.tools?.length === 31) resolveRequest(parsed)
+        response.writeHead(200, { 'content-type': 'text/event-stream' })
+        response.end(chatCompletionsResponse('context-budget-done'))
+      })
+    })
+    await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve))
+    const address = provider.address()
+    if (address === null || typeof address === 'string') throw new Error('mock provider did not bind a TCP port')
+    const overlay = join(workspace, 'context-budget.patch.yml')
+    writeFileSync(overlay, `
+- id: llm-pi-ai
+  config:
+    providers:
+      context-gateway:
+        api: openai-completions
+        apiKeyEnv: CONTEXT_GATEWAY_KEY
+        baseURL: http://127.0.0.1:${address.port}/v1
+        models:
+          - id: qwen-vision-16k
+            contextWindow: 16384
+            maxTokens: 2048
+            input:
+              - text
+              - image
+            thinking: false
+- id: agent-default-model
+  config:
+    provider: context-gateway
+    model: qwen-vision-16k
+`)
+    const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
+    const child = spawn(process.execPath, [
+      '--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web',
+      '--patch', fileURLToPath(new URL('./pin-browse-picker.overlay.yml', import.meta.url)),
+      '--patch', overlay, '--no-open', '--port', '0',
+    ], {
+      cwd: workspace,
+      env: {
+        ...process.env,
+        CONTEXT_GATEWAY_KEY: 'local-fake-key',
+        DSH_HOME: join(workspace, '.dsh'),
+        DSH_AGENTS_HOME: join(workspace, '.agents'),
+        TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let browser: Browser | undefined
+    try {
+      const baseUrl = await waitForReadyLine(child)
+      browser = await chromium.launch()
+      const page = await newEnglishPage(browser)
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-context-budget'))
+      await page.goto(baseUrl, { waitUntil: 'load' })
+      await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+      const notice = page.getByRole('dialog', { name: 'Preview Notice' })
+      await notice.getByRole('button', { name: 'Continue' }).click()
+      await notice.waitFor({ state: 'detached' })
+      await connectFreshWorkspace(page, workspace)
+      const input = page.locator('[data-composer-input]').first()
+      await pastePng(page, readFileSync(fileURLToPath(
+        new URL('../../../snapshots/session/read-image/workspace/red.png', import.meta.url),
+      )))
+      await page.getByRole('img', { name: 'context-budget.png' }).waitFor({ timeout: 10_000 })
+      await page.locator('button[aria-busy="false"]', {
+        has: page.getByRole('img', { name: 'context-budget.png' }),
+      }).waitFor({ timeout: 10_000 })
+      await input.fill('Describe this image in one sentence.')
+      await input.press('Enter')
+      const captured = await Promise.race([
+        received,
+        new Promise<never>((_resolve, reject) => {
+          setTimeout(() => { reject(new Error('provider request not received in 15s')) }, 15_000).unref()
+        }),
+      ])
+      expect(captured.max_completion_tokens).toBe(2048)
+      expect(captured.tools).toHaveLength(31)
+      expect(captured.thinking).toBe(false)
+      expect(JSON.stringify(captured.messages)).toContain('data:image/png;base64,')
+    } finally {
+      await browser?.close()
+      const closed = child.exitCode === null
+        ? new Promise<void>((resolveClose) => { child.once('close', () => { resolveClose() }) })
+        : Promise.resolve()
+      if (child.exitCode === null) child.kill('SIGTERM')
+      await closed
       await new Promise<void>(resolveClose => provider.close(() => { resolveClose() }))
       rmSync(workspace, { recursive: true, force: true })
     }

@@ -262,6 +262,43 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.requests).toEqual([])
   })
 
+  it('reports an estimated context overflow before network I/O', async () => {
+    const server = await mockServer([])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        gateway: {
+          apiKeyEnv: 'PI_TEST_KEY',
+          api: 'openai-completions',
+          baseURL: `${server.url}/v1`,
+          models: [{
+            id: 'vision-16k',
+            contextWindow: 16_384,
+            maxTokens: 2048,
+            input: ['text', 'image'],
+          }],
+        },
+      },
+    })
+
+    const result = await assemble(ctx, {
+      provider: 'gateway',
+      model: 'vision-16k',
+      maxTokens: 2048,
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'u'.repeat(52_500) }],
+        source: { kind: 'user' },
+      })],
+    })
+
+    expect(result.finish).toMatchObject({
+      kind: 'error',
+      failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE },
+    })
+    expect(server.requests).toEqual([])
+  })
+
   it('uses the catalog API implementation, including OpenAI Responses', async () => {
     const server = await mockServer([{ status: 401, body: JSON.stringify({ error: { message: 'expected mock failure' } }) }])
     const ctx = new Context()
