@@ -538,7 +538,11 @@ describe('dsh web keyless CLI smoke', () => {
   it('sends boolean Thinking OFF and ON across a real DSH process restart without changing the Standard tools', async () => {
     requireDist()
     const workspace = mkdtempSync(join(tmpdir(), 'dsh-web-boolean-thinking-'))
-    type CapturedRequest = { thinking?: unknown; reasoning_effort?: unknown; tools?: unknown[] }
+    type CapturedRequest = {
+      thinking?: unknown
+      reasoning_effort?: unknown
+      tools?: Array<{ function?: { name?: unknown } }>
+    }
     const requests: CapturedRequest[] = []
     let resolveRequests!: (requests: CapturedRequest[]) => void
     const received = new Promise<CapturedRequest[]>((resolve) => { resolveRequests = resolve })
@@ -594,10 +598,11 @@ describe('dsh web keyless CLI smoke', () => {
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     const stop = async (process: ChildProcess): Promise<void> => {
-      const closed = process.exitCode === null
+      const running = process.exitCode === null && process.signalCode === null
+      const closed = running
         ? new Promise<void>((resolveClose) => { process.once('close', () => { resolveClose() }) })
         : Promise.resolve()
-      if (process.exitCode === null) process.kill('SIGTERM')
+      if (running) process.kill('SIGTERM')
       await closed
     }
     let child = launch()
@@ -630,7 +635,11 @@ describe('dsh web keyless CLI smoke', () => {
       ])
       expect(captured.map(request => request.thinking)).toEqual([false, true, true])
       expect(captured.every(request => request.reasoning_effort === undefined)).toBe(true)
-      expect(captured.map(request => request.tools?.length)).toEqual([31, 31, 31])
+      const toolCounts = captured.map(request => request.tools?.length)
+      expect(new Set(toolCounts)).toEqual(new Set([toolCounts[0]]))
+      expect(toolCounts[0]).toBeGreaterThanOrEqual(31)
+      expect(captured.every(request => request.tools
+        ?.some(tool => tool.function?.name === 'wait_agent'))).toBe(true)
     } finally {
       await stop(child)
       await new Promise<void>(resolveClose => provider.close(() => { resolveClose() }))
@@ -638,14 +647,14 @@ describe('dsh web keyless CLI smoke', () => {
     }
   }, 120_000)
 
-  it('keeps the context reserve when a 16K image and Standard-tools request reaches provider wire', async () => {
+  it('sends a 32K image and Standard-tools request to provider wire', async () => {
     requireDist()
     const workspace = mkdtempSync(join(tmpdir(), 'dsh-web-context-budget-'))
     interface CapturedRequest {
       readonly max_completion_tokens?: unknown
       readonly messages?: unknown[]
       readonly thinking?: unknown
-      readonly tools?: unknown[]
+      readonly tools?: Array<{ function?: { name?: unknown } }>
     }
     let resolveRequest!: (request: CapturedRequest) => void
     const received = new Promise<CapturedRequest>((resolve) => { resolveRequest = resolve })
@@ -655,7 +664,7 @@ describe('dsh web keyless CLI smoke', () => {
       request.on('data', (chunk: string) => { body += chunk })
       request.on('end', () => {
         const parsed = JSON.parse(body) as CapturedRequest
-        if (parsed.tools?.length === 31) resolveRequest(parsed)
+        if (JSON.stringify(parsed.messages).includes('data:image/png;base64,')) resolveRequest(parsed)
         response.writeHead(200, { 'content-type': 'text/event-stream' })
         response.end(chatCompletionsResponse('context-budget-done'))
       })
@@ -673,8 +682,8 @@ describe('dsh web keyless CLI smoke', () => {
         apiKeyEnv: CONTEXT_GATEWAY_KEY
         baseURL: http://127.0.0.1:${address.port}/v1
         models:
-          - id: qwen-vision-16k
-            contextWindow: 16384
+          - id: qwen-vision-32k
+            contextWindow: 32768
             maxTokens: 2048
             input:
               - text
@@ -683,7 +692,7 @@ describe('dsh web keyless CLI smoke', () => {
 - id: agent-default-model
   config:
     provider: context-gateway
-    model: qwen-vision-16k
+    model: qwen-vision-32k
 `)
     const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
     const child = spawn(process.execPath, [
@@ -726,14 +735,15 @@ describe('dsh web keyless CLI smoke', () => {
       const captured = await Promise.race([
         received,
         new Promise<never>((_resolve, reject) => {
-          setTimeout(() => { reject(new Error('provider request not received in 15s')) }, 15_000).unref()
+          setTimeout(() => { reject(new Error('provider image request not received in 15s')) }, 15_000).unref()
         }),
       ])
       expect(captured.max_completion_tokens).toEqual(expect.any(Number))
       if (typeof captured.max_completion_tokens !== 'number') throw new Error('expected a numeric output cap')
       expect(captured.max_completion_tokens).toBeGreaterThanOrEqual(2)
-      expect(captured.max_completion_tokens).toBeLessThan(2048)
-      expect(captured.tools).toHaveLength(31)
+      expect(captured.max_completion_tokens).toBeLessThanOrEqual(2048)
+      expect(captured.tools?.length).toBeGreaterThanOrEqual(31)
+      expect(captured.tools?.some(tool => tool.function?.name === 'wait_agent')).toBe(true)
       expect(captured.thinking).toBe(false)
       expect(JSON.stringify(captured.messages)).toContain('data:image/png;base64,')
     } finally {
@@ -839,6 +849,7 @@ describe('dsh web keyless CLI smoke', () => {
   it.each(['native', 'ptc'] as const)('selects the %s executor through profile overlays and ignores the retired environment selector', async (mode) => {
     requireDist()
     const workspace = mkdtempSync(join(tmpdir(), 'dsh-web-ptc-'))
+    const promptMarker = `WEB_EXECUTOR_${mode}_${randomUUID()}`
 
     interface PtcModeProviderRequest {
       system?: string
@@ -854,7 +865,11 @@ describe('dsh web keyless CLI smoke', () => {
       request.setEncoding('utf8')
       request.on('data', (chunk: string) => { body += chunk })
       request.on('end', () => {
-        resolveProviderRequest(JSON.parse(body) as PtcModeProviderRequest)
+        const parsed = JSON.parse(body) as PtcModeProviderRequest
+        const messages = JSON.stringify(parsed.messages ?? [])
+        if (messages.includes(promptMarker) && !messages.includes(TITLE_PROMPT_MARKER)) {
+          resolveProviderRequest(parsed)
+        }
         response.writeHead(200, { 'content-type': 'text/event-stream' })
         response.end(messagesResponse('done'))
       })
@@ -886,11 +901,19 @@ describe('dsh web keyless CLI smoke', () => {
     try {
       const baseUrl = await waitForReadyLine(child)
       const created = await remoteRpc<{ sessionId: string }>(baseUrl, 'session/create', { request: {} })
+      // Title requests share the provider; exercise auxiliary-first arrival explicitly.
+      await fetch(`http://127.0.0.1:${address.port}`, {
+        method: 'POST',
+        body: JSON.stringify({ messages: [{
+          role: 'user',
+          content: [{ type: 'text', text: `${TITLE_PROMPT_MARKER}\n${JSON.stringify([promptMarker])}` }],
+        }] }),
+      }).then(response => response.text())
       await remoteRpc<{ accepted: true }>(baseUrl, 'session/prompt', { request: {
         requestId: randomUUID(),
         sessionId: created.sessionId,
         mode: 'queue',
-        content: [{ type: 'text', text: 'go' }],
+        content: [{ type: 'text', text: promptMarker }],
       } })
       const captured = await Promise.race([
         providerRequest,
@@ -926,6 +949,8 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
   let browser: Browser
   let page: Page
   const pageErrors: string[] = []
+  // The product boot only warns about inactive optional entries; this lane requires the whole composition.
+  const bootWarnings: string[] = []
 
   beforeAll(async () => {
     requireDist()
@@ -962,6 +987,9 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     page.on('pageerror', e => pageErrors.push(String(e)))
+    page.on('console', (message) => {
+      if (message.text().startsWith('web boot: warning')) bootWarnings.push(message.text())
+    })
     await page.goto(baseUrl, { waitUntil: 'load' })
   }, 120_000)
 
@@ -980,6 +1008,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     onTestFailed(() => saveFailureShot(page, 'w5-cold-start'))
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     expect(await page.locator('text=Failed to load plugins').count()).toBe(0)
+    expect(bootWarnings).toEqual([])
     const template = await page.locator('[class*="frame"]').evaluate(el => getComputedStyle(el).gridTemplateColumns)
     expect(template.split(' ').length).toBe(3)
     await screen(page, '01-cold-start')

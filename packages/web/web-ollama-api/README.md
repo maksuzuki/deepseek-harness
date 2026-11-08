@@ -25,32 +25,28 @@ With `dsh-web-ollama-api`, the harness searches the web through Ollama Cloud's `
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the plugin in a composition that already loads the web service; it registers as the `ollama-cloud` search provider and the `ollama-cloud-fetch` fetch provider, so `ctx.web` resolves either automatically when it is the only usable backend of that kind — or pin them with `searchProvider: ollama-cloud` and `fetchProvider: ollama-cloud-fetch`. The two share one API base and one key because Ollama serves and authenticates both operations that way.
+Mount the plugin in a composition that already loads the web service. While a key resolves it registers the `ollama-cloud-search` search provider and the `ollama-cloud-fetch` fetch provider, so `ctx.web` resolves either automatically when it is the only usable backend of that kind — or pin them with `searchProvider: ollama-cloud-search` and `fetchProvider: ollama-cloud-fetch`. Both registrations follow the credential: storing the key adds them to every provider list, removing it takes them back out, and without one neither list offers a backend whose every operation would fail. The endpoints are fixed at `https://ollama.com/api/web_search` and `https://ollama.com/api/web_fetch`, and the key is the one the Ollama Cloud model route stores under `OLLAMA_CLOUD_API_KEY`, because Ollama serves and authenticates both operations that way.
 
 ### When to choose it
 
-Choose this backend when a deployment holds an Ollama API key and wants dedicated retrieval endpoints rather than a model-mediated search or an anonymous local fetch. Each provider is unavailable when its endpoint does not parse; the search provider is also unavailable when the result count is not a positive integer. A missing key fails the first operation with a structured `WEB_PROVIDER_CREDENTIAL_MISSING` error.
+Choose this backend when a deployment holds an Ollama API key — the same one its Ollama Cloud model route uses — and wants dedicated retrieval endpoints rather than a model-mediated search or an anonymous local fetch. The search provider is unavailable when the result count is not a positive integer. A deployment without a key registers neither provider, and a key removed while the plugin runs unregisters both; an operation that races that removal still fails with a structured `WEB_PROVIDER_CREDENTIAL_MISSING` error.
 
 ### Minimal configuration
 
-Load the web service and the plugin; the key resolves from `ctx.credentials` when that service is mounted, otherwise from `$OLLAMA_CLOUD_API_KEY` in the launching environment. Each operation reads its own endpoint override — `$OLLAMA_SEARCH_BASE_URL` and `$OLLAMA_FETCH_BASE_URL` — over the default `https://ollama.com`, appending `/api/web_search` or `/api/web_fetch` unless the value already names that full endpoint.
+Load the web service and the plugin. The key resolves from `ctx.credentials` under `OLLAMA_CLOUD_API_KEY` — the reference the Ollama Cloud model route stores — when that service is mounted, otherwise from the same variable in the launching environment. Neither endpoint is configurable: both are Ollama Cloud's public ones.
 
 ```yaml
 - name: '@deepseek-ai/dsh-web'
 - name: '@deepseek-ai/dsh-web-ollama-api'
   config:
-    apiKeyEnv: OLLAMA_CLOUD_API_KEY
+    maxResults: 5
 ```
 
 | Field | Default | Meaning |
 |---|---|---|
-| `apiKey` | omitted | Literal Ollama API key; prefer `apiKeyEnv` so no secret enters configuration. A non-empty literal wins over `apiKeyEnv` |
-| `apiKeyEnv` | `OLLAMA_CLOUD_API_KEY` | Credential reference resolved for each operation through `ctx.credentials`, or from the process environment when that service is absent. An operation that needs a key and finds none fails as `WEB_PROVIDER_CREDENTIAL_MISSING` |
-| `searchBaseURL` | `https://ollama.com` | Search endpoint base, or the full `/api/web_search` endpoint; the path is appended when absent. Falls back to `$OLLAMA_SEARCH_BASE_URL`; an unparseable value makes the search provider unavailable |
-| `fetchBaseURL` | `https://ollama.com` | Fetch endpoint base, or the full `/api/web_fetch` endpoint; the path is appended when absent. Falls back to `$OLLAMA_FETCH_BASE_URL`; an unparseable value makes the fetch provider unavailable |
 | `maxResults` | `5` | Positive-integer default result count when a search request carries no `maxResults` |
 
-The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-web-ollama-api) is the exhaustive source for every accepted field and its JSDoc. Every field is live: the Ollama Cloud search page writes them through the plugin entry, and each operation captures the current values.
+The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-web-ollama-api) is the exhaustive source for every accepted field and its JSDoc. The field is live: the Ollama Cloud search page writes it through the plugin entry, and each operation captures the current value.
 
 ### What a search returns
 
@@ -62,7 +58,7 @@ The API answers with the page's Markdown in `content`, and fails when the page y
 
 ### Failures and recovery
 
-Provider failures — HTTP errors, network failures, unparseable bodies — surface as `WebError` `WEB_PROVIDER_ERROR`; a missing credential is `WEB_PROVIDER_CREDENTIAL_MISSING`; an aborted operation surfaces as `WEB_ABORTED`. HTTP redirects are rejected before the `Location` target is contacted and surface as `WEB_PROVIDER_ERROR`. Every failure after dispatch names the resolved endpoint and explains that endpoint configuration is separate from chat; the message points at the two URL fields on the Ollama Cloud search page under Settings > Plugins and, when that page is unavailable, at `OLLAMA_SEARCH_BASE_URL`/`OLLAMA_FETCH_BASE_URL` and `web-ollama-api.searchBaseURL`/`fetchBaseURL`. Callers route on the code; the model-facing tools surface failures to the model under their own error wrapper.
+Provider failures — HTTP errors, network failures, unparseable bodies — surface as `WebError` `WEB_PROVIDER_ERROR`; a missing credential is `WEB_PROVIDER_CREDENTIAL_MISSING`; an aborted operation surfaces as `WEB_ABORTED`. HTTP redirects are rejected before the `Location` target is contacted and surface as `WEB_PROVIDER_ERROR`. Every failure after dispatch names the resolved endpoint and states that this package fixes it at Ollama Cloud's public API, pointing at the shared `OLLAMA_CLOUD_API_KEY` instead of at endpoint configuration. Callers route on the code; the model-facing tools surface failures to the model under their own error wrapper.
 
 -----
 

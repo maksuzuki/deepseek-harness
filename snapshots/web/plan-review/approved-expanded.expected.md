@@ -11,6 +11,8 @@
 - status: Completed
 - button "Completed in {{duration}}" [expanded]
 - button "Analysis completed" [expanded]
+- button "Context injection runtime-context"
+- button "Context injection time-context"
 - 'button "Think The user wants me to plan a small change to add a `--greeting` flag to a CLI. They explicitly told me not to read or write any files, and to call exit_plan_mode with a short plan. Let me do that directly."'
 - paragraph:
   - text: Since the user has explicitly asked me not to read or write any files and to go straight to planning, I'll proceed with
@@ -29,7 +31,8 @@
 - textbox "Message or run a task, / commands, @ files or sessions"
 - button "Add files or run commands"
 - 'button "Access mode, current: Workspace Write"': Workspace Write
-- button "Select model, current DeepSeek · DeepSeek-V4-Flash": DeepSeek · DeepSeek-V4-Flash
+- button "Push guard ON" [pressed]
+- button "Select model, current DeepSeek · DeepSeek-V4-Flash"
 - button "Send message" [disabled]
 - button "1 turns 2 steps · {{throughput}} tok/s": 1 turns 2 steps{{throughput}} tok/s
 - button "10.6K tok · Cache hit 51%": 10.6K tokCache hit 51%

@@ -366,17 +366,20 @@ export interface RoutingProviderOption {
 
 /**
  * Routing destinations a model row may offer: the providers this deployment
- * configured, each with the model ids its catalog currently serves.
+ * configured and registered, each with the model ids its catalog currently
+ * serves. A peak destination executes through the route that owns it, so a
+ * profile the settings layer still lists while no adapter serves it is not a
+ * destination a save could accept.
  * @param rows - every joined provider row.
  * @param catalogGroups - last good model groups by provider.
- * @returns one option per configured provider, in row order.
+ * @returns one option per active configured provider, in row order.
  */
 export function routingProviderOptions(
   rows: readonly ProviderRow[],
   catalogGroups: readonly ModelProviderGroup[],
 ): RoutingProviderOption[] {
   const models = new Map(catalogGroups.map(group => [group.id, group.models.map(model => model.id)]))
-  return rows.filter(row => row.configured).map(row => ({
+  return rows.filter(row => row.configured && row.entry.active).map(row => ({
     id: row.entry.provider,
     name: row.entry.displayName,
     models: models.get(row.entry.provider) ?? [],

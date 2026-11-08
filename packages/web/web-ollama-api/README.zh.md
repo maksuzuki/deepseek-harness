@@ -25,32 +25,28 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在已加载 web 服务的组合中挂载本插件；它以 `ollama-cloud` 搜索提供方与 `ollama-cloud-fetch` 抓取提供方身份注册，因此当它是该类别中唯一可用的后端时，`ctx.web` 会自动解析到它——也可以用 `searchProvider: ollama-cloud` 与 `fetchProvider: ollama-cloud-fetch` 固定。两者共用一个 API 基址与一个密钥，因为 Ollama 就是以这种方式提供并鉴权这两项操作的。
+在已加载 web 服务的组合中挂载本插件。只要密钥可解析，它就注册 `ollama-cloud-search` 搜索提供方与 `ollama-cloud-fetch` 抓取提供方，因此当它是该类别中唯一可用的后端时，`ctx.web` 会自动解析到它——也可以用 `searchProvider: ollama-cloud-search` 与 `fetchProvider: ollama-cloud-fetch` 固定。两个注册都跟随凭据：存入密钥会把它们加入各提供方列表，删除密钥会把它们移出；没有密钥时，两个列表都不提供一个每次操作都会失败的后端。端点固定为 `https://ollama.com/api/web_search` 与 `https://ollama.com/api/web_fetch`，密钥使用 Ollama Cloud 模型路由保存在 `OLLAMA_CLOUD_API_KEY` 下的那一把——Ollama 就是以这种方式提供并鉴权这两项操作的。
 
 ### 何时选择
 
-当部署持有 Ollama API 密钥，并希望使用专用检索端点，而不是经由模型完成搜索或匿名的本地抓取时，选择此后端。端点无法解析时对应的提供方不可用；结果数量不是正整数时搜索提供方也不可用。缺少密钥时首次操作会以结构化的 `WEB_PROVIDER_CREDENTIAL_MISSING` 错误失败。
+当部署持有 Ollama API 密钥——即其 Ollama Cloud 模型路由所用的那一把——并希望使用专用检索端点，而不是经由模型完成搜索或匿名的本地抓取时，选择此后端。结果数量不是正整数时搜索提供方不可用。没有密钥的部署不会注册任何提供方，运行中删除密钥会注销两者；与这次删除竞争的操作仍会以结构化的 `WEB_PROVIDER_CREDENTIAL_MISSING` 错误失败。
 
 ### 最小配置
 
-加载 web 服务与本插件；当挂载了 `ctx.credentials` 时密钥从该服务解析，否则回退到启动环境中的 `$OLLAMA_CLOUD_API_KEY`。每项操作各自读取自己的端点覆盖值——`$OLLAMA_SEARCH_BASE_URL` 与 `$OLLAMA_FETCH_BASE_URL`——它们优先于默认的 `https://ollama.com`；若该值尚未是那一项的完整端点，则追加 `/api/web_search` 或 `/api/web_fetch`。
+加载 web 服务与本插件。挂载了 `ctx.credentials` 时密钥按 `OLLAMA_CLOUD_API_KEY` 从该服务解析——即 Ollama Cloud 模型路由保存的引用——否则从启动环境中的同一变量读取。两个端点都不可配置：它们就是 Ollama Cloud 的公开端点。
 
 ```yaml
 - name: '@deepseek-ai/dsh-web'
 - name: '@deepseek-ai/dsh-web-ollama-api'
   config:
-    apiKeyEnv: OLLAMA_CLOUD_API_KEY
+    maxResults: 5
 ```
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
-| `apiKey` | 省略 | 字面 Ollama API 密钥；优先使用 `apiKeyEnv`，以免密钥进入配置文件。非空的字面值优先于 `apiKeyEnv` |
-| `apiKeyEnv` | `OLLAMA_CLOUD_API_KEY` | 每次操作经 `ctx.credentials` 解析的凭据引用；该服务缺失时从进程环境读取。需要密钥却找不到时以 `WEB_PROVIDER_CREDENTIAL_MISSING` 失败 |
-| `searchBaseURL` | `https://ollama.com` | 搜索端点基址或完整 `/api/web_search` 端点；缺失时追加该路径。回退到 `$OLLAMA_SEARCH_BASE_URL`；无法解析时搜索提供方不可用 |
-| `fetchBaseURL` | `https://ollama.com` | 抓取端点基址或完整 `/api/web_fetch` 端点；缺失时追加该路径。回退到 `$OLLAMA_FETCH_BASE_URL`；无法解析时抓取提供方不可用 |
 | `maxResults` | `5` | 请求不含 `maxResults` 时使用的正整数默认结果数 |
 
-生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-web-ollama-api)是每个受支持字段及其 JSDoc 的穷尽式真源。所有字段都是实时的：Ollama Cloud 搜索页面通过插件条目写入它们，每项操作都捕获当前值。
+生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-web-ollama-api)是每个受支持字段及其 JSDoc 的穷尽式真源。该字段是实时的：Ollama Cloud 搜索页面通过插件条目写入它，每项操作都捕获当前值。
 
 ### 搜索返回什么
 
@@ -62,7 +58,7 @@ kind: "package-reference"
 
 ### 失败与恢复
 
-提供方失败——HTTP 错误、网络失败、无法解析的响应体——以 `WebError` `WEB_PROVIDER_ERROR` 呈现；缺少密钥为 `WEB_PROVIDER_CREDENTIAL_MISSING`；被取消的操作呈现为 `WEB_ABORTED`。HTTP 重定向会在接触 `Location` 目标之前被拒绝，并呈现为 `WEB_PROVIDER_ERROR`。派发之后的每次失败都会指明解析出的端点，并说明端点配置与对话相互独立；消息指向 Settings > Plugins 下 Ollama Cloud 搜索页面的两个 URL 字段，该页面不可用时指向 `OLLAMA_SEARCH_BASE_URL`／`OLLAMA_FETCH_BASE_URL` 与 `web-ollama-api.searchBaseURL`／`fetchBaseURL`。调用方按 code 路由；面向模型的工具在自身的错误包装下把失败呈现给模型。
+提供方失败——HTTP 错误、网络失败、无法解析的响应体——以 `WebError` `WEB_PROVIDER_ERROR` 呈现；缺少密钥为 `WEB_PROVIDER_CREDENTIAL_MISSING`；被取消的操作呈现为 `WEB_ABORTED`。HTTP 重定向会在接触 `Location` 目标之前被拒绝，并呈现为 `WEB_PROVIDER_ERROR`。派发之后的每次失败都会指明解析出的端点，说明本包把它固定在 Ollama Cloud 的公开 API，并指向共享的 `OLLAMA_CLOUD_API_KEY` 而不是端点配置。调用方按 code 路由；面向模型的工具在自身的错误包装下把失败呈现给模型。
 
 -----
 

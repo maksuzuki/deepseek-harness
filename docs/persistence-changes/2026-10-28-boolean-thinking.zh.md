@@ -44,7 +44,7 @@ changes:
 <a id="verification"></a>
 ## 验证
 
-型检查 5 个 gate 全部通过；聚焦 Vitest 614 项全部通过，实际 dsh web 进程 smoke 以 Thinking false、true 及进程重启后恢复的 true 通过，并在每次请求中保留 31 个工具。
+构建的 10 个 gate 全部通过；聚焦的 pi-ai 与 Thinking 测试套件通过，实际 dsh web 进程 smoke 以 Thinking false、true 及进程重启后恢复的 true 通过，并在每次请求中保留 32 个工具。
 
 <a id="dev-note"></a>
 ## 开发备注

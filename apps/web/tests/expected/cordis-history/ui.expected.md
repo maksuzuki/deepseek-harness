@@ -15,6 +15,7 @@
 - status: Completed
 - button "Completed in {{duration}}" [expanded]
 - button "Called tools" [expanded]
+- button "Context injection runtime-context"
 - button "Think I will inspect the current Session's dynamic Cordis Plugins before defining the snapshot Package."
 - button "Inspect plugins 0 dynamic plugins"
 - button "Think No dynamic Plugins are present, so I will define the requested Host and Client Package."
@@ -69,6 +70,7 @@
 - textbox "Message or run a task, / commands, @ files or sessions"
 - button "Add files or run commands"
 - 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Push guard ON" [pressed]
 - button "Select model, current DeepSeek · DeepSeek-V4-Flash": DeepSeek · DeepSeek-V4-Flash
 - button "Send message" [disabled]
 - button "3 turns 7 steps"

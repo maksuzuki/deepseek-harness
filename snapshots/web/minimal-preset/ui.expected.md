@@ -12,6 +12,7 @@
 - status: Completed
 - button "Completed in {{duration}}" [expanded]
 - button "Ran commands" [expanded]
+- button "Context injection runtime-context"
 - button "Bash printf 'MINIMAL_BASH_CARD_OK\\n'" [expanded]
 - text: "IN { \"command\": \"printf 'MINIMAL_BASH_CARD_OK\\\\n'\" } OUT MINIMAL_BASH_CARD_OK [Command finished with exit code 0]"
 - button "Inspect"
@@ -24,6 +25,7 @@
 - textbox "Message or run a task, / commands, @ files or sessions"
 - button "Add files or run commands"
 - 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Push guard ON" [pressed]
 - button "Select model, current DeepSeek · DeepSeek-V4-Flash": DeepSeek · DeepSeek-V4-Flash
 - button "Send message" [disabled]
 - button "1 turns 2 steps · {{throughput}} tok/s": 1 turns 2 steps{{throughput}} tok/s

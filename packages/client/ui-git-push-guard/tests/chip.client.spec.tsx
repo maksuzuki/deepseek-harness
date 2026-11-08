@@ -44,16 +44,18 @@ function chip(host: SlotTestRuntime) {
 
 describe('composer guard chip', () => {
   it('reads this Session through the session-addressed route and shows its own setting', async () => {
-    const fetchMock = vi.fn(async () => Response.json({ default: true, session: false }))
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
+      async () => Response.json({ default: true, session: false }),
+    )
     vi.stubGlobal('fetch', fetchMock)
     const view = chip(await bench())
     const button = await view.view.findByRole('button', { name: en['chipOff'] })
     expect(button.getAttribute('aria-pressed')).toBe('false')
     expect(button.getAttribute('title')).toBe(en['chipOffTitle'])
-    expect(fetchMock).toHaveBeenCalledWith('/push-guard/state?session=guard-session', {
-      headers: { accept: 'application/json' },
-      cache: 'no-store',
-    })
+    const call = fetchMock.mock.calls[0]
+    expect(call?.[0]).toBe('/push-guard/state?session=guard-session')
+    expect(call?.[1]).toMatchObject({ headers: { accept: 'application/json' }, cache: 'no-store' })
+    expect(call?.[1]?.signal).toBeInstanceOf(AbortSignal)
   })
 
   it('toggles only this Session and follows the stored answer', async () => {
@@ -91,19 +93,24 @@ describe('composer guard chip', () => {
     expect(on).toHaveProperty('disabled', false)
   })
 
-  it('re-reads on window focus and on tab visibility', async () => {
+  it('re-reads when the tab becomes visible and skips a hidden refresh', async () => {
     const fetchMock = vi.fn()
     fetchMock.mockResolvedValueOnce(Response.json({ default: true, session: false }))
     fetchMock.mockResolvedValueOnce(Response.json({ default: true, session: true }))
-    fetchMock.mockResolvedValueOnce(Response.json({ default: true, session: false }))
     vi.stubGlobal('fetch', fetchMock)
     const view = chip(await bench())
     await view.view.findByRole('button', { name: en['chipOff'] })
-    await act(async () => { window.dispatchEvent(new Event('focus')) })
+    await act(async () => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' })
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
     expect(await view.view.findByRole('button', { name: en['chipOn'] })).toBeTruthy()
-    await act(async () => { document.dispatchEvent(new Event('visibilitychange')) })
-    expect(await view.view.findByRole('button', { name: en['chipOff'] })).toBeTruthy()
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('reports a failed read in place and keeps the chip inert', async () => {
@@ -161,6 +168,23 @@ describe('composer guard chip', () => {
     chip(host)
     await host.dispose()
     await act(async () => { rejectGet(new Error('offline')) })
+  })
+
+  it('ignores the aborted read a visibility refresh replaces', async () => {
+    let rejectFirst!: (error: unknown) => void
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => new Promise<Response>((_resolve, reject) => { rejectFirst = reject }))
+      .mockResolvedValueOnce(Response.json({ default: true, session: true }))
+    vi.stubGlobal('fetch', fetchMock)
+    const view = chip(await bench())
+    expect(view.view.getByRole('button', { name: en['statusLoading'] })).toBeTruthy()
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'))
+      rejectFirst(new DOMException('aborted', 'AbortError'))
+    })
+    const on = await view.view.findByRole('button', { name: en['chipOn'] })
+    expect(on.getAttribute('title')).toBe(en['chipOnTitle'])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('renders the Japanese copy', async () => {

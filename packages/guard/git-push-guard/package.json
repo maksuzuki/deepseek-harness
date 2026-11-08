@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-git-push-guard",
   "description": "Git push guard plugin: asks the user to confirm Git push commands before they run, with a per-session switch and a default for new sessions",
-  "version": "0.2.1-rc.3",
+  "version": "0.2.2-rc.1",
   "publishConfig": {
     "access": "public"
   },

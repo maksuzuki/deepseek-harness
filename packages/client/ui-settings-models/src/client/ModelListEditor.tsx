@@ -168,9 +168,9 @@ function peakRoutingOptions(
 ): readonly RoutingProviderOption[] | undefined {
   if (options === undefined) return undefined
   if (provider !== PEAK_ROUTING_PROVIDER || !modelId.startsWith(PEAK_ROUTING_MODEL_PREFIX)) return undefined
-  // A window moves the request elsewhere; naming the route it already serves
-  // would ask the endpoint to serve itself, which the adapter refuses as a
-  // destination that is not an installed catalog provider.
+  // A window moves the request to another route; naming the row's own route
+  // would only ask it to serve itself, which is not a choice this control
+  // offers.
   return options.filter(option => option.id !== PEAK_ROUTING_PROVIDER)
 }
 

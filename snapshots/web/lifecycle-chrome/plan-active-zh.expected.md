@@ -4,6 +4,7 @@
 - navigation "全局面板":
   - button "插件"
   - button "自动化任务"
+  - button "从侧边栏取消固定自动化任务"
   - button "更多"
 - text: 工作区
 - button "搜索会话"
@@ -23,5 +24,6 @@
 - button "添加文件或调用指令"
 - button "访问模式，当前：工作区内修改": 工作区内修改
 - button "计划模式已开启，按下关闭": 计划
+- button "推送防护已开启" [pressed]
 - button "选择模型，当前 DeepSeek · DeepSeek-V4-Flash": DeepSeek · DeepSeek-V4-Flash
 - button "发送消息" [disabled]

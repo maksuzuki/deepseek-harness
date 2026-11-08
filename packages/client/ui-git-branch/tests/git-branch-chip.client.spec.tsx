@@ -6,7 +6,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
-import { allowAllAccess, bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { allowAllAccess, bindSnapshotSelector, contextMenuHook, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceGitGithub, WorkspaceGitStatus } from '@deepseek-ai/dsh-api-workspace-git/types'
@@ -94,6 +94,7 @@ function bench(initial: WorkspaceGitStatus | undefined, workingDirectory: string
       useSessionRetainInfo: () => undefined,
       usePanelInfo,
       useResource,
+      useContextMenu: contextMenuHook(),
       useWorkspaces: emptyWorkspaces(),
     },
   }

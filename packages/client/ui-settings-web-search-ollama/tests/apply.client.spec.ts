@@ -67,7 +67,7 @@ describe('ui-settings-web-search-ollama apply', () => {
     await vi.waitFor(() => { expect(slots.entries('plugins.shiguredo')).toHaveLength(1) })
     const entry = slots.entries('plugins.shiguredo')[0]!
     expect(entry.options).toMatchObject({ id: 'web-ollama-api', order: 21 })
-    expect(resolveSlotLabel(entry.options.label)).toBe('Ollama Cloud 搜索')
+    expect(resolveSlotLabel(entry.options.label)).toBe('使用 Ollama Cloud 的网页搜索与页面获取')
     expect(entry.locale).toBe(NS)
     const face = (entry.inject as () => Pick<OllamaSearchCardFace, 'hooks'>)()
     expect(Object.keys(face.hooks)).toEqual(['ollamaSearchCard'])

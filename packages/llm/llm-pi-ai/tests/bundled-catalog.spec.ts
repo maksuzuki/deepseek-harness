@@ -52,6 +52,17 @@ describe('bundled catalog', () => {
     expect(models.map(model => model.id)).toContain('kimi-k3')
   })
 
+  it('advertises the 1017 release badge only for the pinned Flash build', async () => {
+    const ctx = await harness({ providers: { 'ollama-cloud': { apiKeyEnv: KEY_ENV } } })
+    const models = await ctx.llm.listModels('ollama-cloud')
+
+    expect(models.find(model => model.id === 'deepseek-v4.1-flash:1017')?.badge)
+      .toEqual({ text: '1017', tone: 'info' })
+    // Every other bundled model keeps its catalog name alone.
+    expect(models.filter(model => model.id !== 'deepseek-v4.1-flash:1017').map(model => model.badge))
+      .toEqual(models.filter(model => model.id !== 'deepseek-v4.1-flash:1017').map(() => undefined))
+  })
+
   it('serves the pinned 1017 build under DeepSeek\'s own name and no untagged entry', async () => {
     const ctx = await harness({ providers: { 'ollama-cloud': { apiKeyEnv: KEY_ENV } } })
     const info = await ctx.llm.resolveModelInfo('ollama-cloud', 'deepseek-v4.1-flash:1017')
@@ -198,6 +209,28 @@ describe('bundled catalog', () => {
       expect(model.maxTokens).toBeGreaterThan(0)
       expect(model.contextWindow).toBeGreaterThanOrEqual(model.maxTokens)
     }
+  })
+
+  it('serves the models the service published after the first snapshot', async () => {
+    const ctx = await harness({ providers: { 'ollama-cloud': { apiKeyEnv: KEY_ENV } } })
+    const listed = await ctx.llm.listModels('ollama-cloud')
+    expect(listed.map(model => model.id)).toEqual(expect.arrayContaining([
+      'kimi-k3.1-pro',
+      'mimo-v2.6-flash',
+      'mimo-v2.6-pro',
+    ]))
+    // Each carries the capacity and modalities its endpoint reports, so the
+    // picker, compaction, and image admission plan against real values.
+    const mimo = await ctx.llm.resolveModelInfo('ollama-cloud', 'mimo-v2.6-flash')
+    expect(mimo.context?.contextWindow).toBe(1_048_576)
+    expect(mimo.inputModalities).toEqual(['text', 'image'])
+    expect(mimo.reasoning?.efforts.map(effort => effort.id)).toContain('off')
+
+    const resolved = resolveProfiles({ 'ollama-cloud': { apiKeyEnv: KEY_ENV } }).get('ollama-cloud')!
+    const models = resolved.piProvider?.getModels() ?? []
+    // The endpoint rejects a larger max_tokens outright and names this ceiling.
+    expect(models.find(entry => entry.id === 'mimo-v2.6-pro')?.maxTokens).toBe(131_072)
+    expect(models.find(entry => entry.id === 'kimi-k3.1-pro')?.maxTokens).toBe(1_048_576)
   })
 
   it('sends a bundled model to the route endpoint under its own protocol', async () => {

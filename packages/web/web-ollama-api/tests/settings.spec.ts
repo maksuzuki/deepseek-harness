@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { liveConfig } from '../../../settings/settings/tests/live-config.ts'
 import WebRuntime from '@deepseek-ai/dsh-web'
+import { OLLAMA_CREDENTIAL_REF, OLLAMA_DEFAULT_BASE_URL } from '@deepseek-ai/dsh-web-ollama-api'
 import * as ollamaPlugin from '@deepseek-ai/dsh-web-ollama-api'
 
 function jsonResponse(body: unknown): Response {
@@ -15,8 +16,8 @@ function jsonResponse(body: unknown): Response {
 
 async function boot() {
   const ctx = new Context()
-  await ctx.plugin(WebRuntime, { searchProvider: 'ollama-cloud' })
-  const live = await liveConfig(ctx, ollamaPlugin, { apiKey: 'ollama-key', searchBaseURL: 'https://search.entry.test' })
+  await ctx.plugin(WebRuntime, { searchProvider: 'ollama-cloud-search' })
+  const live = await liveConfig(ctx, ollamaPlugin, {})
   return { ctx, live }
 }
 
@@ -45,15 +46,17 @@ async function searchOnce(ctx: Context): Promise<{ url: string; body: Record<str
 }
 
 describe('web-ollama-api settings section', () => {
-  it('serves stored endpoint and result-count values to the next search without re-registering the provider', async () => {
+  it('serves the stored result count to the next search without re-registering the provider', async () => {
+    vi.stubEnv(OLLAMA_CREDENTIAL_REF, 'ollama-key')
     const bench = await boot()
-    expect((await searchOnce(bench.ctx)).url).toContain('https://search.entry.test')
+    expect((await searchOnce(bench.ctx)).url).toBe(`${OLLAMA_DEFAULT_BASE_URL}/api/web_search`)
 
-    await bench.live.update({ searchBaseURL: 'https://search.stored.test', maxResults: 9 })
+    await bench.live.update({ maxResults: 9 })
 
     const next = await searchOnce(bench.ctx)
-    expect(next.url).toContain('https://search.stored.test')
+    expect(next.url).toBe(`${OLLAMA_DEFAULT_BASE_URL}/api/web_search`)
     expect(next.body['max_results']).toBe(9)
     await bench.ctx.fiber.dispose()
+    vi.unstubAllEnvs()
   })
 })

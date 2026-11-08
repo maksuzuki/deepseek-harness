@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import WebRuntime from '@deepseek-ai/dsh-web'
 import {
+  OLLAMA_CREDENTIAL_REF,
   OLLAMA_DEFAULT_BASE_URL,
   OLLAMA_DEFAULT_MAX_RESULTS,
   OLLAMA_PROVIDER_ID,
@@ -162,11 +163,11 @@ describe('OllamaSearchProvider error handling', () => {
     expect((error as Error).message).toContain('Ollama Cloud API error (HTTP 502)')
   })
 
-  it('names the endpoint and settings page on every post-dispatch failure', async () => {
+  it('names the endpoint and the shared key on every post-dispatch failure', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({}, { status: 500 })))
     const error = await providerOf(options).search({ query: 'q' }).catch((caught: unknown) => caught)
     expect((error as Error).message).toContain('used endpoint "https://ollama.test/api/web_search"')
-    expect((error as Error).message).toContain('Settings > Plugins > Ollama Cloud search')
+    expect((error as Error).message).toContain('OLLAMA_CLOUD_API_KEY')
   })
 
   it('maps a network failure to WEB_PROVIDER_ERROR', async () => {
@@ -203,9 +204,10 @@ describe('OllamaSearchProvider error handling', () => {
 describe('web-ollama-api plugin registration', () => {
   it('registers the provider into ctx.web and withdraws it with the fiber', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ results: [] })))
+    vi.stubEnv(OLLAMA_CREDENTIAL_REF, 'ollama-key')
     const ctx = new Context()
     await ctx.plugin(WebRuntime, { searchProvider: OLLAMA_PROVIDER_ID })
-    const fiber = await ctx.plugin(ollamaPlugin, { apiKey: 'ollama-key' })
+    const fiber = await ctx.plugin(ollamaPlugin, {})
     await expect(ctx.web.search({ query: 'q' })).resolves.toMatchObject({ sources: [], truncated: false })
     await fiber.dispose()
     await expect(ctx.web.search({ query: 'q' }))
@@ -216,52 +218,48 @@ describe('web-ollama-api plugin registration', () => {
     expect('default' in ollamaPlugin).toBe(false)
   })
 
-  it('threads the configured maxResults and search endpoint into the request', async () => {
+  it('threads the configured maxResults into the request at the fixed endpoint', async () => {
     const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => jsonResponse({ results: [] }))
     vi.stubGlobal('fetch', fetchMock)
+    vi.stubEnv(OLLAMA_CREDENTIAL_REF, 'ollama-key')
     const ctx = new Context()
     await ctx.plugin(WebRuntime, { searchProvider: OLLAMA_PROVIDER_ID })
-    const fiber = await ctx.plugin(ollamaPlugin, { apiKey: 'ollama-key', searchBaseURL: 'https://proxy.test', maxResults: 9 })
+    const fiber = await ctx.plugin(ollamaPlugin, { maxResults: 9 })
     await ctx.web.search({ query: 'q' })
     const [url, init] = fetchMock.mock.calls[0]!
-    expect(url).toBe('https://proxy.test/api/web_search')
+    expect(url).toBe(`${OLLAMA_DEFAULT_BASE_URL}/api/web_search`)
     expect(postedBody(init)).toMatchObject({ max_results: 9 })
     await fiber.dispose()
   })
 
-  it('falls back to $OLLAMA_CLOUD_API_KEY and the default base URL when config omits them', async () => {
-    const prev = process.env.OLLAMA_CLOUD_API_KEY
-    process.env.OLLAMA_CLOUD_API_KEY = 'env-key'
-    try {
-      const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => jsonResponse({ results: [] }))
-      vi.stubGlobal('fetch', fetchMock)
-      const ctx = new Context()
-      await ctx.plugin(WebRuntime, { searchProvider: OLLAMA_PROVIDER_ID })
-      ollamaPlugin.apply(ctx, ollamaPlugin.Config({}))
-      await ctx.web.search({ query: 'q' })
-      const [url, init] = fetchMock.mock.calls[0]!
-      expect(url).toBe(`${OLLAMA_DEFAULT_BASE_URL}/api/web_search`)
-      expect(new Headers(init?.headers).get('authorization')).toBe('Bearer env-key')
-      expect(postedBody(init)).toMatchObject({ max_results: OLLAMA_DEFAULT_MAX_RESULTS })
-      await ctx.fiber.dispose()
-    } finally {
-      if (prev === undefined) delete process.env.OLLAMA_CLOUD_API_KEY
-      else process.env.OLLAMA_CLOUD_API_KEY = prev
-    }
+  it('resolves the shared environment key and the default result count', async () => {
+    vi.stubEnv(OLLAMA_CREDENTIAL_REF, 'env-key')
+    const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => jsonResponse({ results: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+    const ctx = new Context()
+    await ctx.plugin(WebRuntime, { searchProvider: OLLAMA_PROVIDER_ID })
+    await ctx.plugin(ollamaPlugin, {})
+    await ctx.web.search({ query: 'q' })
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe(`${OLLAMA_DEFAULT_BASE_URL}/api/web_search`)
+    expect(new Headers(init?.headers).get('authorization')).toBe('Bearer env-key')
+    expect(postedBody(init)).toMatchObject({ max_results: OLLAMA_DEFAULT_MAX_RESULTS })
+    await ctx.fiber.dispose()
+    vi.unstubAllEnvs()
   })
 
-  it('reports an actionable credential error when neither config nor env supplies a key', async () => {
-    const prev = process.env.OLLAMA_CLOUD_API_KEY
-    delete process.env.OLLAMA_CLOUD_API_KEY
-    try {
-      const ctx = new Context()
-      await ctx.plugin(WebRuntime, { searchProvider: OLLAMA_PROVIDER_ID })
-      await ctx.plugin(ollamaPlugin, {})
-      const error = await ctx.web.search({ query: 'q' }).catch((caught: unknown) => caught)
-      expect(error).toMatchObject({ code: 'WEB_PROVIDER_CREDENTIAL_MISSING' })
-      expect((error as Error).message).toMatch(/store it through the credentials service.*Ollama Cloud search settings page/s)
-    } finally {
-      if (prev !== undefined) process.env.OLLAMA_CLOUD_API_KEY = prev
-    }
+  it('reports an actionable credential error when the key disappears after the providers register', async () => {
+    vi.stubEnv(OLLAMA_CREDENTIAL_REF, 'env-key')
+    const ctx = new Context()
+    await ctx.plugin(WebRuntime, { searchProvider: OLLAMA_PROVIDER_ID })
+    await ctx.plugin(ollamaPlugin, {})
+    // An ambient removal emits no event, so the registration outlives the key
+    // until the next restart; the call itself still reports the missing key.
+    vi.stubEnv(OLLAMA_CREDENTIAL_REF, '')
+    const error = await ctx.web.search({ query: 'q' }).catch((caught: unknown) => caught)
+    expect(error).toMatchObject({ code: 'WEB_PROVIDER_CREDENTIAL_MISSING' })
+    expect((error as Error).message).toMatch(/store it through the credentials service.*Ollama Cloud model provider/s)
+    await ctx.fiber.dispose()
+    vi.unstubAllEnvs()
   })
 })

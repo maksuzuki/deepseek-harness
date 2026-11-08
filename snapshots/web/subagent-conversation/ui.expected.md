@@ -14,7 +14,7 @@
 - navigation "Turn navigation":
   - button "Jump to turn 1"
   - button "Jump to turn 2"
-- text: "Explain event sourcing in one sentence.Your parent agent id is \"session-{{uuid}}\". Before you finish, send your result to that agent with send_message({ agent_id: \"session-{{uuid}}\", message: \"<self-contained result>\" }). The parent shares your workspace but does not automatically receive your transcript, tool output, or reasoning. Send earlier messages as well when a finding changes what the parent should do next; sending a message does not end your turn. {{clock}}"
+- text: Explain event sourcing in one sentence.Your final answer is delivered automatically if your parent is still online. Include the result and relevant evidence in that answer; the parent does not receive your full transcript, tool output, or reasoning. If your last action is a message to your parent, the completion notice omits your final answer; include the result and relevant evidence in that message. {{clock}}
 - button "Copy"
 - status: Completed
 - button "Completed in {{duration}}"
@@ -37,6 +37,7 @@
 - textbox "Message or run a task, / commands, @ files or sessions"
 - button "Add files or run commands"
 - 'button "Access mode, current: Custom"': Custom
+- button "Push guard ON" [pressed]
 - button "Send message" [disabled]
 - button "2 turns 2 steps · {{throughput}} tok/s": 2 turns 2 steps{{throughput}} tok/s
 - button "15.7K tok · Cache hit 99%": 15.7K tokCache hit 99%

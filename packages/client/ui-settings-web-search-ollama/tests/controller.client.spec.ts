@@ -38,8 +38,7 @@ function credentialsApi(configured: boolean) {
     ok: true as const,
     value: Object.fromEntries(refs.map(ref => [ref, { configured, writable: true }])),
   }))
-  const set = vi.fn(() => Promise.resolve({ ok: true as const, value: undefined }))
-  return { ctx: ctxWith({ credentials: { describe, set } }), describe, set }
+  return { ctx: ctxWith({ credentials: { describe } }), describe }
 }
 
 /** The shipped selection the switch falls back to when it is turned off. */
@@ -72,50 +71,16 @@ function serve(b: ReturnType<typeof bench>, selection: WebProviderSelection = SH
 }
 
 describe('OllamaSearchCardController credential', () => {
-  it('reads the credential state for the reference the section names, and defaults it', async () => {
-    const b = bench()
+  it('reports whether the shared Ollama Cloud key is configured', async () => {
+    const b = bench({ configured: false })
     await vi.waitFor(() => { expect(b.credentials.describe).toHaveBeenCalledWith(['OLLAMA_CLOUD_API_KEY']) })
     serve(b)
-    await vi.waitFor(() => { expect(b.state().apiKeyConfigured).toBe(true) })
-    expect(b.state()).toMatchObject({
-      searchBaseURL: { text: '', overridden: false },
-      fetchBaseURL: { text: '', overridden: false },
-      searchPlaceholder: 'https://ollama.com/api/web_search',
-      fetchPlaceholder: 'https://ollama.com/api/web_fetch',
-      maxResults: { text: '5' },
-      apiKey: { text: '', overridden: false },
-    })
+    await vi.waitFor(() => { expect(b.state().apiKeyConfigured).toBe(false) })
+    expect(b.state()).toMatchObject({ maxResults: { text: '5', overridden: false } })
     b.controller.dispose()
   })
 
-  it('writes the staged key through the credentials domain, never the settings section', async () => {
-    const b = bench({ configured: false })
-    serve(b)
-    b.face.edit('apiKey', ' ollama-secret ')
-    expect(b.state().dirty).toBe(true)
-    expect(b.credentials.set).not.toHaveBeenCalled()
-    b.credentials.describe.mockImplementation((refs: readonly string[]) => Promise.resolve({
-      ok: true as const, value: Object.fromEntries(refs.map(ref => [ref, { configured: true, writable: true }])),
-    }))
-    b.face.save()
-    await vi.waitFor(() => { expect(b.credentials.set).toHaveBeenCalledWith('OLLAMA_CLOUD_API_KEY', 'ollama-secret') })
-    expect(b.provider.mutate).not.toHaveBeenCalled()
-    expect(b.web.mutate).not.toHaveBeenCalled()
-    await vi.waitFor(() => { expect(b.state()).toMatchObject({ dirty: false, apiKeyConfigured: true }) })
-    b.controller.dispose()
-  })
-
-  it('keeps the stored key when the draft is left blank', () => {
-    const b = bench()
-    serve(b)
-    b.face.edit('apiKey', '   ')
-    expect(b.state().dirty).toBe(false)
-    b.face.save()
-    expect(b.credentials.set).not.toHaveBeenCalled()
-    b.controller.dispose()
-  })
-
-  it('re-reads only when the Host reports the watched reference changed', async () => {
+  it('re-reads only when the Host reports the shared reference changed', async () => {
     const b = bench({ configured: false })
     serve(b)
     await vi.waitFor(() => { expect(b.credentials.describe).toHaveBeenCalled() })
@@ -130,92 +95,40 @@ describe('OllamaSearchCardController credential', () => {
     b.controller.dispose()
   })
 
-  it('addresses the reference the section declares', async () => {
-    const b = bench({ accept: true })
-    serve(b)
-    b.provider.publish({ value: { apiKeyEnv: 'TEAM_OLLAMA_KEY', maxResults: 5 } })
-    await vi.waitFor(() => { expect(b.credentials.describe).toHaveBeenLastCalledWith(['TEAM_OLLAMA_KEY']) })
-    b.face.edit('apiKey', 'ollama-secret')
-    b.face.save()
-    await vi.waitFor(() => { expect(b.credentials.set).toHaveBeenCalledWith('TEAM_OLLAMA_KEY', 'ollama-secret') })
-    b.controller.dispose()
-  })
-
-  it('reports a key the Host did not store as a failed save', async () => {
-    const b = bench({ configured: false })
-    serve(b)
-    b.face.edit('apiKey', 'ollama-secret')
-    b.face.save()
-    await vi.waitFor(() => { expect(b.state()).toMatchObject({ failed: true, dirty: true }) })
-    b.controller.dispose()
-  })
-
-  it('keeps the card usable when the credential read and write are refused', async () => {
-    const refusal = () => Promise.resolve({
+  it('keeps the card usable when the credential read is refused', async () => {
+    const describe = vi.fn(() => Promise.resolve({
       ok: false as const,
       error: new RemoteError('credential/rejected', 'offline', { ref: 'OLLAMA_CLOUD_API_KEY' }),
-    })
-    const describe = vi.fn(refusal)
-    const set = vi.fn(refusal)
-    const b = bench({ ctx: ctxWith({ credentials: { describe, set } }) })
+    }))
+    const b = bench({ ctx: ctxWith({ credentials: { describe } }) })
     await vi.waitFor(() => { expect(describe).toHaveBeenCalled() })
     serve(b)
-    b.face.edit('apiKey', 'ollama-secret')
-    b.face.save()
-    await vi.waitFor(() => { expect(set).toHaveBeenCalled() })
-    expect(b.state()).toMatchObject({ available: true, apiKeyConfigured: false, searchBaseURL: { text: '' } })
-    b.controller.dispose()
-  })
-
-  it('drops a credential answer for a reference that changed while it was pending', async () => {
-    type Answer = { ok: true; value: Record<string, { configured: boolean; writable: boolean }> }
-    let answer: (value: Answer) => void = () => {}
-    const describe = vi.fn(() => new Promise<Answer>((resolve) => { answer = resolve }))
-    const b = bench({ ctx: ctxWith({ credentials: { describe, set: vi.fn() } }) })
-    serve(b)
-    b.provider.publish({ value: { apiKeyEnv: 'RENAMED_KEY', maxResults: 5 } })
-    answer({ ok: true, value: { OLLAMA_CLOUD_API_KEY: { configured: true, writable: true } } })
-    await Promise.resolve()
-    expect(b.state().apiKeyConfigured).toBe(false)
+    expect(b.state()).toMatchObject({ available: true, apiKeyConfigured: false, maxResults: { text: '5' } })
     b.controller.dispose()
   })
 })
 
 describe('OllamaSearchCardController sections', () => {
-  it('saves both endpoints and the default result count together', async () => {
+  it('saves the default result count', async () => {
     const b = bench({ accept: true })
     serve(b)
-    b.face.edit('searchBaseURL', 'https://search.entry.test')
-    b.face.edit('fetchBaseURL', 'https://fetch.entry.test')
     b.face.edit('maxResults', '20')
     b.face.save()
     await vi.waitFor(() => { expect(b.provider.mutate).toHaveBeenCalledTimes(1) })
-    expect(b.provider.mutate).toHaveBeenCalledWith([
-      { op: 'set', path: ['searchBaseURL'], value: 'https://search.entry.test' },
-      { op: 'set', path: ['fetchBaseURL'], value: 'https://fetch.entry.test' },
-      { op: 'set', path: ['maxResults'], value: 20 },
-    ], undefined)
+    expect(b.provider.mutate).toHaveBeenCalledWith([{ op: 'set', path: ['maxResults'], value: 20 }], undefined)
     expect(b.web.mutate).not.toHaveBeenCalled()
     b.controller.dispose()
   })
 
-  it('edits one endpoint, then resets it back to the composed default', async () => {
+  it('resets an overridden result count back to the composed default', async () => {
     const b = bench({ accept: true })
-    const composed = { maxResults: 5, searchBaseURL: 'https://ollama.com', fetchBaseURL: 'https://mirror.test' }
-    b.provider.publish({ status: 'ready', writable: true, value: composed, base: composed, user: {} })
-    expect(b.state().fetchBaseURL).toEqual({ text: composed.fetchBaseURL, overridden: false, invalid: false })
-    b.face.edit('fetchBaseURL', 'https://gateway.test')
+    const composed = { maxResults: 5 }
+    b.provider.publish({ status: 'ready', writable: true, value: { maxResults: 9 }, base: composed, user: { maxResults: 9 } })
+    expect(b.state().maxResults).toMatchObject({ text: '9', overridden: true })
+    b.face.resetField('maxResults')
     b.face.save()
     await vi.waitFor(() => { expect(b.state().dirty).toBe(false) })
-    expect(b.provider.mutate).toHaveBeenLastCalledWith([{ op: 'set', path: ['fetchBaseURL'], value: 'https://gateway.test' }], undefined)
-    expect(b.state().fetchBaseURL).toMatchObject({ text: 'https://gateway.test', overridden: true })
-    b.face.resetField('fetchBaseURL')
-    expect(b.state().fetchBaseURL).toMatchObject({ text: composed.fetchBaseURL, overridden: false })
-    b.face.save()
-    await vi.waitFor(() => { expect(b.state().dirty).toBe(false) })
-    expect(b.provider.mutate).toHaveBeenLastCalledWith([{ op: 'unset', path: ['fetchBaseURL'] }], undefined)
-    // One reset addresses one field: the search endpoint was never touched.
-    expect(b.state().searchBaseURL).toMatchObject({ text: composed.searchBaseURL, overridden: false })
+    expect(b.provider.mutate).toHaveBeenLastCalledWith([{ op: 'unset', path: ['maxResults'] }], undefined)
     b.controller.dispose()
   })
 
@@ -269,7 +182,7 @@ describe('OllamaSearchCardController switch', () => {
     b.face.save()
     await vi.waitFor(() => { expect(b.state().dirty).toBe(false) })
     expect(b.web.mutate).toHaveBeenLastCalledWith([
-      { op: 'set', path: ['searchProvider'], value: 'ollama-cloud' },
+      { op: 'set', path: ['searchProvider'], value: 'ollama-cloud-search' },
       { op: 'set', path: ['fetchProvider'], value: 'ollama-cloud-fetch' },
     ], undefined)
     expect(b.state().useOllama).toBe(true)
@@ -288,7 +201,7 @@ describe('OllamaSearchCardController switch', () => {
   it('restores the deployment\'s own selection when it composes something else', async () => {
     const exa = { searchProvider: 'exa', fetchProvider: 'http' }
     const b = bench({ accept: true })
-    b.web.publish({ status: 'ready', writable: true, value: { searchProvider: 'ollama-cloud' }, base: exa, user: { searchProvider: 'ollama-cloud' } })
+    b.web.publish({ status: 'ready', writable: true, value: { searchProvider: 'ollama-cloud-search' }, base: exa, user: { searchProvider: 'ollama-cloud-search' } })
     b.provider.publish({ status: 'ready', writable: true, value: { maxResults: 5 }, base: {}, user: {} })
     expect(b.state().useOllama).toBe(true)
     b.face.setOllama(false)
@@ -305,7 +218,7 @@ describe('OllamaSearchCardController switch', () => {
   })
 
   it('writes the shipped selection explicitly when the deployment composes the Ollama providers', async () => {
-    const ollama = { searchProvider: 'ollama-cloud', fetchProvider: 'ollama-cloud-fetch' }
+    const ollama = { searchProvider: 'ollama-cloud-search', fetchProvider: 'ollama-cloud-fetch' }
     const b = bench({ accept: true })
     b.web.publish({ status: 'ready', writable: true, value: ollama, base: ollama, user: {} })
     b.provider.publish({ status: 'ready', writable: true, value: { maxResults: 5 }, base: {}, user: {} })
@@ -336,7 +249,7 @@ describe('OllamaSearchCardController switch', () => {
       host.mutate.mockImplementation((ops, revision) => { order.push(name); return accept(ops, revision) })
     }
     b.face.setOllama(true)
-    b.face.edit('searchBaseURL', 'https://search.entry.test')
+    b.face.edit('maxResults', '7')
     b.face.save()
     await vi.waitFor(() => { expect(b.state().dirty).toBe(false) })
     expect(order).toEqual(['provider', 'web'])
@@ -361,7 +274,7 @@ describe('OllamaSearchCardController switch', () => {
     serve(b)
     b.web.publish({ status: 'unavailable' })
     expect(b.state()).toMatchObject({ available: true, switchAvailable: false, useOllama: false })
-    expect(b.state().searchBaseURL.text).toBe('')
+    expect(b.state().maxResults.text).toBe('5')
     b.controller.dispose()
   })
 })

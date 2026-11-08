@@ -12,7 +12,7 @@
 - text: and confirm the fixture wiring {{clock}}
 - button "Copy"
 - status: Completed
-- button "Completed in {{duration}}" [disabled]
+- button "Completed in {{duration}}"
 - paragraph: USER_INVOKE_REPLY acknowledged; following the injected skill.
 - text: {{clock}}
 - button "Copy"
@@ -22,6 +22,7 @@
 - textbox "Message or run a task, / commands, @ files or sessions"
 - button "Add files or run commands"
 - 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Push guard ON" [pressed]
 - button "Select model, current DeepSeek · DeepSeek-V4-Flash": DeepSeek · DeepSeek-V4-Flash
 - button "Send message" [disabled]
 - button "1 turns 1 steps · {{throughput}} tok/s": 1 turns 1 steps{{throughput}} tok/s

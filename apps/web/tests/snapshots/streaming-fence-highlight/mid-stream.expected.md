@@ -9,6 +9,8 @@
   - button "More conversation views"
 - text: Stream one TypeScript fence for the highlighting snapshot. {{clock}}
 - button "Copy"
+- button "Context injection runtime-context"
+- button "Context injection time-context"
 - text: ts
 - button "Wrap lines" [pressed]
 - button "Copy"
@@ -18,6 +20,7 @@
 - textbox "Message or run a task, / commands, @ files or sessions"
 - button "Add files or run commands"
 - 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Push guard ON" [pressed]
 - button "Select model, current streaming-fence-highlight-test · streaming-fence-highlight-test/streaming-fence": streaming-fence-highlight-test · streaming-fence-highlight-test/streaming-fence
 - button "Stop generating"
 

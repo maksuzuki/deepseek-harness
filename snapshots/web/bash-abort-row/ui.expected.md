@@ -11,6 +11,7 @@
 - status: Stopped
 - button "Stopped" [disabled] [expanded]
 - button "Ran commands" [expanded]
+- button "Context injection runtime-context"
 - 'button "Failed Bash Error: tool call aborted" [expanded]'
 - text: "IN { \"command\": \"node -e \\\"const fs=require('node:fs'); fs.writeFileSync('started.tmp', 'started'); fs.renameSync('started.tmp', 'started.txt'); setInterval(() => {}, 1000)\\\"\", \"description\": \"Wait until cancellation\" } OUT Error: tool call aborted"
 - button "Inspect"
@@ -18,6 +19,7 @@
 - textbox "Message or run a task, / commands, @ files or sessions"
 - button "Add files or run commands"
 - 'button "Access mode, current: Full access"': Full access
+- button "Push guard ON" [pressed]
 - button "Select model, current DeepSeek · DeepSeek-V4-Flash": DeepSeek · DeepSeek-V4-Flash
 - button "Send message" [disabled]
 - button "1 turns 1 steps"

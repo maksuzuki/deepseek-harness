@@ -6,8 +6,8 @@ import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
 import { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError } from '@deepseek-ai/dsh-llm'
 import { assertUsefulContextCapacity } from '../src/context-budget.ts'
 
-const STANDARD_TOOL_COUNT = 31
-const STANDARD_TOOLS_JSON_CHARS = 30_650
+const STANDARD_TOOL_COUNT = 32
+const STANDARD_TOOLS_JSON_CHARS = 32_117
 
 function model(contextWindow = 16_384): Model<'openai-completions'> {
   return {
@@ -106,12 +106,12 @@ describe('pi-ai context output budget', () => {
     const history = context.messages.slice(1)
 
     expect(estimateTextTokens('s'.repeat(5868))).toBe(1677)
-    expect(estimateMessageTokens(system) - estimateTextTokens('s'.repeat(5868))).toBe(8758)
+    expect(estimateMessageTokens(system) - estimateTextTokens('s'.repeat(5868))).toBe(9177)
     expect(history.map(estimateMessageTokens)).toEqual([1379, 213, 287, 74])
-    expect(estimateContextTokens(context).tokens).toBe(12_388)
+    expect(estimateContextTokens(context).tokens).toBe(12_807)
     expect(() => { assertUsefulContextCapacity(model(), context, 2048) }).toThrow(expect.objectContaining({
       code: CONTEXT_WINDOW_EXCEEDED_CODE,
-      message: 'pi-ai context budget for model "vision-16k" has no useful output capacity: estimated 12388 input in a 16384-token window reduces requested 2048 output tokens to 1',
+      message: 'pi-ai context budget for model "vision-16k" has no useful output capacity: estimated 12807 input in a 16384-token window reduces requested 2048 output tokens to 1',
     }))
     expect(clampMaxTokensToContext(model(), context, 2048)).toBe(1)
   })

@@ -21,7 +21,10 @@
   - text: GitHub event received
   - time: {{clock}}
 - status: Completed
-- button "Completed in {{duration}}" [disabled]
+- button "Completed in {{duration}}" [expanded]
+- button "Injected context" [expanded]
+- button "Context injection runtime-context"
+- button "Context injection time-context"
 - paragraph: "Review complete: no actionable findings."
 - text: {{clock}}
 - button "Copy"
@@ -31,6 +34,7 @@
 - textbox "Message or run a task, / commands, @ files or sessions"
 - button "Add files or run commands"
 - 'button "Access mode, current: Read Only"': Read Only
+- button "Push guard ON" [pressed]
 - button "Select model, current github-webhook-review-test · github-webhook-review-test/reply": github-webhook-review-test · github-webhook-review-test/reply
 - button "Send message" [disabled]
 - button "1 turns 1 steps"

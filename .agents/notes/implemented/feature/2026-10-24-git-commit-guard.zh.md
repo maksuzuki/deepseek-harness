@@ -40,4 +40,4 @@ Status: implemented
 
 ## 测试
 
-`packages/guard/git-commit-guard/tests` 覆盖路由（读取、两个写入层级、信任栅栏、畸形请求）、pre-execute 决策路径（允许、拒绝、无法触达回答方、子智能体、无智能体、取消）、状态文件（首次使用时捕获、畸形输入）与提示词段落。`packages/client/ui-git-commit-guard/tests` 用打桩的路由覆盖插件注册与输入框芯片。变更中运行了仓库门禁：类型检查、lint、包 README 门禁、翻译配对、配置目录与依赖策略。
+`packages/guard/git-push-guard/tests` 覆盖提交守卫所设计的 pre-execute 决策路径（允许、拒绝、无法触达回答方、子智能体、无智能体、取消）、状态文件（首次使用时捕获、畸形输入）与提示词段落。`packages/client/ui-git-push-guard/tests` 用打桩的路由覆盖插件注册与输入框芯片。提交守卫自身的包从未发布，因此没有测试目录以它命名。变更中运行了仓库门禁：类型检查、lint、包 README 门禁、翻译配对、配置目录与依赖策略。

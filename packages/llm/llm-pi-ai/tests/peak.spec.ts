@@ -108,9 +108,18 @@ describe('peak destination validation', () => {
     })).toThrow(/ships no published peak window/)
   })
 
-  it('refuses a candidate the installed catalog does not describe', () => {
-    expect(() => resolveProfiles(ollama([{ provider: 'not-a-provider' }])))
-      .toThrow(/is not an installed pi-ai catalog provider/)
+  it('keeps a destination this adapter cannot execute for the LLM service to route', () => {
+    // `deepseek-official` is served by another adapter, so this adapter cannot
+    // describe its models; it carries the destination and lets the service
+    // resolve the route instead of refusing the window.
+    const profiles = resolveProfiles(ollama([{ provider: 'deepseek-official', model: 'deepseek-flash' }]))
+    expect(profiles.get('ollama-cloud')?.peak.get('deepseek-v4.1-flash:1017')?.[0]?.providers)
+      .toEqual([{ provider: 'deepseek-official', model: 'deepseek-flash' }])
+  })
+
+  it('refuses a credential reference on a destination that runs on its own route', () => {
+    expect(() => resolveProfiles(ollama([{ provider: 'deepseek-official', apiKeyEnv: 'DEEPSEEK_API_KEY' }])))
+      .toThrow(/executes on its own route/)
   })
 
   it('refuses a candidate that does not serve the routed model', () => {
@@ -169,6 +178,43 @@ describe('peak destination validation', () => {
     expect(window?.from).toBe('12:00')
     expect(window?.to).toBe('18:00')
     expect(window?.timeZone).toBe('UTC')
+  })
+})
+
+describe('peak destination ownership', () => {
+  /** Thursday 12:00 UTC, the inclusive start of Ollama Cloud's peak window. */
+  const peak = Date.UTC(2026, 0, 1, 12, 0)
+  /** Thursday 00:00 UTC, outside it. */
+  const offPeak = Date.UTC(2026, 0, 1, 0, 0)
+
+  const ollama = (candidate: PiAiPeakProvider): Record<string, PiAiProviderProfile> => ({
+    'ollama-cloud': { models: [{ id: 'deepseek-v4.1-flash:1017', peak: [candidate] }] },
+  })
+
+  it('hands a destination this adapter cannot execute to the LLM service inside the window', () => {
+    const providers = ollama({ provider: 'deepseek-official', model: 'deepseek-flash' })
+    expect(adapter(providers, () => peak).alternateRoute('ollama-cloud', 'deepseek-v4.1-flash:1017'))
+      .toEqual({ provider: 'deepseek-official', model: 'deepseek-flash' })
+  })
+
+  it('leaves local dispatch to the adapter outside the window', () => {
+    const providers = ollama({ provider: 'deepseek-official', model: 'deepseek-flash' })
+    expect(adapter(providers, () => offPeak).alternateRoute('ollama-cloud', 'deepseek-v4.1-flash:1017'))
+      .toBeUndefined()
+  })
+
+  it('keeps a destination the installed catalog describes inside the adapter', () => {
+    const providers = ollama({ provider: 'opencode-go', model: 'kimi-k3' })
+    expect(adapter(providers, () => peak).alternateRoute('ollama-cloud', 'deepseek-v4.1-flash:1017'))
+      .toBeUndefined()
+  })
+
+  it('serves the requested route when a direct adapter caller reaches it inside the window', async () => {
+    // The LLM service is what redirects; a caller that bypasses it keeps the
+    // requested route instead of dispatching a destination this snapshot never built.
+    const providers = ollama({ provider: 'deepseek-official', model: 'deepseek-flash' })
+    const prepared = await adapter(providers, () => peak).prepareCall('ollama-cloud', 'deepseek-v4.1-flash:1017')
+    expect(prepared.model.name).toBe('DeepSeek-V4.1-Flash')
   })
 })
 

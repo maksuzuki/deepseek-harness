@@ -9,6 +9,8 @@
   - button "More conversation views"
 - text: Reply with a one-sentence description of event sourcing, then stop. {{clock}}
 - button "Copy"
+- button "Context injection runtime-context"
+- button "Context injection time-context"
 - paragraph: partial
 - status: Deep diving
 - text: Deep diving for {{duration}} ···
@@ -16,5 +18,6 @@
   - paragraph: Queue this follow-up while the current turn is running.
 - button "Add files or run commands"
 - 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Push guard ON" [pressed]
 - button "Select model, current DeepSeek · DeepSeek-V4-Flash": DeepSeek · DeepSeek-V4-Flash
 - button "Queue message"

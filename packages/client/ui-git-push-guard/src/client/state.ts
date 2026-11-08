@@ -21,7 +21,7 @@ export interface GuardApi {
    * @param sessionId - Session whose own setting to read.
    * @returns the route's answer.
    */
-  readonly loadState: (sessionId?: SessionId) => Promise<GuardState>
+  readonly loadState: (sessionId?: SessionId, signal?: AbortSignal) => Promise<GuardState>
   /**
    * Write the default, or one Session's own setting when `sessionId` is given.
    * @param enabled - next guard setting.
@@ -85,12 +85,13 @@ async function requestState(url: string, init: RequestInit, addressed: boolean):
 /**
  * Read the default, or one Session's own setting.
  * @param sessionId - Session whose own setting to read; omit for the default.
+ * @param signal - aborts an in-flight read when its chip unmounts.
  * @returns the route's answer.
  */
-export function loadState(sessionId?: SessionId): Promise<GuardState> {
+export function loadState(sessionId?: SessionId, signal?: AbortSignal): Promise<GuardState> {
   return requestState(
     stateUrl(sessionId),
-    { headers: { accept: 'application/json' }, cache: 'no-store' },
+    { headers: { accept: 'application/json' }, cache: 'no-store', ...signal === undefined ? {} : { signal } },
     sessionId !== undefined,
   )
 }

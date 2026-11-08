@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** The Ollama Cloud web page as the Plugins page renders it: its one-liner, its switch, its four controls, and what a save does. */
+/** The Ollama Cloud web page as the Plugins page renders it: its one-liner, its switch, its result count, and what a save does. */
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -25,14 +25,8 @@ function renderCard(state: Partial<OllamaSearchCardState> = {}, view: 'summary' 
     ...settled,
     switchAvailable: true,
     useOllama: false,
-    searchBaseURL: field(''),
-    fetchBaseURL: field(''),
-    searchPlaceholder: 'https://ollama.com/api/web_search',
-    fetchPlaceholder: 'https://ollama.com/api/web_fetch',
     maxResults: field('5'),
-    apiKey: field(''),
-    apiKeyConfigured: false,
-    apiKeyWritable: true,
+    apiKeyConfigured: true,
     ...state,
   })
   const actions = { edit: vi.fn(), resetField: vi.fn(), save: vi.fn(), discard: vi.fn(), setOllama: vi.fn() }
@@ -56,21 +50,12 @@ describe('OllamaSearchCard', () => {
     expect(screen.queryByLabelText(en.maxResults)).toBeNull()
   })
 
-  it('shows its controls at once on its page, without a title of its own', () => {
+  it('shows the switch and the result count at once, without a title of its own', () => {
     renderCard()
 
-    expect(screen.getByLabelText(en.apiKey)).toBeTruthy()
-    expect(screen.getByLabelText(en.searchBaseUrl)).toBeTruthy()
-    expect(screen.getByLabelText(en.fetchBaseUrl)).toBeTruthy()
+    expect(screen.getByRole('switch', { name: en.useOllama })).toBeTruthy()
     expect(screen.getByLabelText(en.maxResults)).toBeTruthy()
     expect(screen.queryByText(en.title)).toBeNull()
-  })
-
-  it('shows each operation its own default endpoint while the field is empty', () => {
-    renderCard()
-
-    expect(screen.getByLabelText(en.searchBaseUrl)).toHaveProperty('placeholder', 'https://ollama.com/api/web_search')
-    expect(screen.getByLabelText(en.fetchBaseUrl)).toHaveProperty('placeholder', 'https://ollama.com/api/web_fetch')
   })
 
   it('renders the switch only when the Host serves the selection it writes', () => {
@@ -80,10 +65,10 @@ describe('OllamaSearchCard', () => {
 
     renderCard({ switchAvailable: false })
     expect(screen.queryByRole('switch')).toBeNull()
-    expect(screen.getByLabelText(en.searchBaseUrl)).toBeTruthy()
+    expect(screen.getByLabelText(en.maxResults)).toBeTruthy()
   })
 
-  it('stages the switch position and every field edit instead of writing them', () => {
+  it('stages the switch position and the result count instead of writing them', () => {
     const actions = renderCard({ useOllama: true })
 
     expect(screen.getByRole('switch', { name: en.useOllama }).getAttribute('aria-checked')).toBe('true')
@@ -95,46 +80,39 @@ describe('OllamaSearchCard', () => {
     expect(actions.save).not.toHaveBeenCalled()
   })
 
-  it('stages a key and endpoint edits, and resets the result count it owns', () => {
-    const actions = renderCard({ maxResults: field('5', { overridden: true }) })
+  it('resets the result count it owns when the stored value overrides the default', () => {
+    const actions = renderCard({ maxResults: field('9', { overridden: true }) })
 
-    fireEvent.change(screen.getByLabelText(en.apiKey), { target: { value: 'sk-test' } })
-    fireEvent.change(screen.getByLabelText(en.searchBaseUrl), { target: { value: 'https://search.test' } })
-    fireEvent.change(screen.getByLabelText(en.fetchBaseUrl), { target: { value: 'https://fetch.test' } })
-
-    expect(actions.edit).toHaveBeenCalledWith('apiKey', 'sk-test')
-    expect(actions.edit).toHaveBeenCalledWith('searchBaseURL', 'https://search.test')
-    expect(actions.edit).toHaveBeenCalledWith('fetchBaseURL', 'https://fetch.test')
-
+    expect(screen.getByText(en.overridden)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: en.reset }))
     expect(actions.resetField).toHaveBeenCalledWith('maxResults')
   })
 
-  it('reports whether a key is configured without ever rendering one', () => {
+  it('points at the model settings while no key is configured, and stops once one is', () => {
     renderCard({ apiKeyConfigured: false })
     expect(screen.getByText(en.apiKeyUnset)).toBeTruthy()
     cleanup()
 
     renderCard({ apiKeyConfigured: true })
-    expect(screen.getByText(en.apiKeySet)).toBeTruthy()
-    expect(screen.getByLabelText(en.apiKey)).toHaveProperty('value', '')
+    expect(screen.queryByText(en.apiKeyUnset)).toBeNull()
   })
 
-  it('offers the reset for an overridden field only, and addresses each field separately', () => {
-    const actions = renderCard({ fetchBaseURL: field('https://gateway.test', { overridden: true }) })
-
-    // One badge and one reset: the search endpoint is still inherited.
-    expect(screen.getAllByText(en.overridden)).toHaveLength(1)
-    fireEvent.click(screen.getByRole('button', { name: en.reset }))
-    expect(actions.resetField).toHaveBeenCalledWith('fetchBaseURL')
+  it('keeps the switch off-limits until a key is configured, but still lets it turn off', () => {
+    renderCard({ apiKeyConfigured: false, useOllama: false })
+    expect(screen.getByRole('switch', { name: en.useOllama })).toHaveProperty('disabled', true)
     cleanup()
 
-    const search = renderCard({ searchBaseURL: field('https://search.test', { overridden: true }) })
-    fireEvent.click(screen.getByRole('button', { name: en.reset }))
-    expect(search.resetField).toHaveBeenCalledWith('searchBaseURL')
+    // The key can disappear after the pair was selected; that selection must
+    // stay reversible from this page.
+    renderCard({ apiKeyConfigured: false, useOllama: true })
+    expect(screen.getByRole('switch', { name: en.useOllama })).toHaveProperty('disabled', false)
+    cleanup()
+
+    renderCard({ apiKeyConfigured: true, useOllama: false })
+    expect(screen.getByRole('switch', { name: en.useOllama })).toHaveProperty('disabled', false)
   })
 
-  it('keeps the save inert until something is staged, offers no discard, and writes the staged edits when saved', () => {
+  it('keeps the save inert until something is staged and writes the staged edits when saved', () => {
     renderCard()
     expect(screen.getByRole('button', { name: en.save })).toHaveProperty('disabled', true)
     expect(screen.getAllByRole('button')).toHaveLength(1)
@@ -177,13 +155,5 @@ describe('OllamaSearchCard', () => {
     expect(screen.getByRole('status')).toHaveProperty('textContent', en.readOnly)
     expect(screen.getByLabelText(en.maxResults)).toHaveProperty('disabled', true)
     expect(screen.getByRole('switch', { name: en.useOllama })).toHaveProperty('disabled', true)
-  })
-
-  it('keeps the key writable when only the settings document is read-only', () => {
-    // The credentials domain and the settings document are separate stores
-    // with separate refusals; the key has its own control for exactly that.
-    renderCard({ writable: false, apiKeyWritable: true })
-
-    expect(screen.getByLabelText(en.apiKey)).toHaveProperty('disabled', false)
   })
 })

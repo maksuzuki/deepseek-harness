@@ -14,7 +14,7 @@ import {
 import type { OllamaResult } from './types.ts'
 
 /** Stable id this provider registers under. */
-export const OLLAMA_PROVIDER_ID = 'ollama-cloud'
+export const OLLAMA_PROVIDER_ID = 'ollama-cloud-search'
 
 /** Default number of results requested per search. */
 export const OLLAMA_DEFAULT_MAX_RESULTS = 5
@@ -66,6 +66,19 @@ export function mapOllamaResponse(response: unknown): WebSearchResult {
 /** The Ollama Cloud-backed search provider; HTTP redirects fail as `WEB_PROVIDER_ERROR`. */
 export class OllamaSearchProvider implements WebSearchProvider {
   readonly id = OLLAMA_PROVIDER_ID
+  /** Brand name the provider picker shows; the same in every locale. */
+  readonly title = 'Ollama Cloud'
+  /** Picker description: what this provider suits and what it costs or cannot do. */
+  readonly description: NonNullable<WebSearchProvider['description']> = {
+    en: 'Queries Ollama Cloud\'s web search endpoint directly for titles, URLs, and snippets without an extra model call. Uses an Ollama Cloud API key and may incur API charges.',
+    zh: '直接请求 Ollama Cloud 的网页搜索接口返回标题、URL 与摘要，无需额外调用模型。使用 Ollama Cloud API 密钥，可能产生计费',
+    ja: '追加のモデル呼び出しなしで Ollama Cloud のウェブ検索エンドポイントに直接問い合わせ、タイトル、URL、スニペットを返します。Ollama Cloud の API キーを使用し、API 料金が発生する場合があります。',
+    es: 'Consulta directamente el punto de conexión de búsqueda web de Ollama Cloud y devuelve títulos, URL y fragmentos sin una llamada adicional al modelo. Usa una clave de API de Ollama Cloud y puede generar cargos de API.',
+    fr: 'Interroge directement le point de terminaison de recherche web d\'Ollama Cloud pour obtenir titres, URL et extraits, sans appel de modèle supplémentaire. Utilise une clé API Ollama Cloud et peut entraîner des frais d\'API.',
+    de: 'Fragt den Websuchendpunkt von Ollama Cloud direkt nach Titeln, URLs und Ausschnitten ab, ohne zusätzlichen Modellaufruf. Verwendet einen Ollama Cloud API-Schlüssel und kann API-Kosten verursachen.',
+    ru: 'Напрямую запрашивает поисковый веб-сервис Ollama Cloud и возвращает заголовки, URL и фрагменты без дополнительного вызова модели. Использует ключ API Ollama Cloud; возможна оплата API.',
+    pt: 'Consulta diretamente o endpoint de pesquisa na web do Ollama Cloud e retorna títulos, URLs e trechos sem uma chamada extra ao modelo. Usa uma chave de API do Ollama Cloud e pode gerar cobranças de API.',
+  }
 
   /**
    * @param resolveOptions - the options for the NEXT search, snapshotted

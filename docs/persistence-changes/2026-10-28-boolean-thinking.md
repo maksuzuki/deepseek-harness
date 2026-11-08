@@ -44,7 +44,7 @@ Existing records remain valid for new readers because every new field is optiona
 <a id="verification"></a>
 ## Verification
 
-Typecheck passed all 5 gates; the focused Vitest suite passed 614 of 614 tests, and the real dsh web process smoke passed with Thinking false, true, and restored true after process restart, retaining 31 tools on every request.
+Build passed all 10 gates; focused pi-ai and Thinking suites passed, and the real dsh web process smoke passed with Thinking false, true, and restored true after process restart, retaining 32 tools on every request.
 
 <a id="dev-note"></a>
 ## Dev Note

@@ -47,6 +47,7 @@ import {
 import type {
   GenerateOptions,
   ImageAttachmentAccess,
+  LlmAlternateRoute,
   LlmModelInfo,
   LlmModelRouting,
   LlmProviderInfo,
@@ -61,7 +62,8 @@ import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attac
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
-import { catalogModels } from './catalog.ts'
+import { bundledBadge } from './bundled-catalog.ts'
+import { catalogModels, catalogProvider } from './catalog.ts'
 import { catalogAlternateProfile } from './config.ts'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { requestImageTarget, toPiContext } from './context.ts'
@@ -70,6 +72,7 @@ import { conversationUpdates, createModels, getSupportedThinkingLevels } from '.
 import { selectPeakWindow } from './peak.ts'
 import { buildProvider } from './provider.ts'
 import { toStreamChunks } from './stream.ts'
+import type { PiAiRequestHeaderContext } from './types.ts'
 
 /**
  * Initially active declaration added to an Anthropic request whose projected
@@ -133,6 +136,18 @@ export interface PiAiAdapterOptions {
    * every request no matter how often the human signed in.
    */
   auth: PiAiAuthInjection
+  /**
+   * Synchronously prepare this call's headers before SDK dispatch. The input
+   * contains a fresh copy of profile headers; attribution is enforced afterward.
+   * Omission preserves profile headers. Throws fail the call with REQUEST_HEADERS
+   * before inference I/O. Do not retain or mutate headers after returning.
+   * Non-TypeError messages become public diagnostics and must exclude secrets;
+   * TypeError details and non-Error values are replaced with safe guidance.
+   * @param request - immutable routing metadata from the prepared call.
+   * @param headers - request-owned headers initialized from the profile.
+   * @returns headers to pass to pi-ai after applying Harness attribution.
+   */
+  prepareHeaders?: (request: PiAiRequestHeaderContext, headers: Headers) => Headers
   /** Resolve the optional durable attachment service at request time. */
   resolveAttachments?: () => AttachmentStore | undefined
   /** Bridge one attachment reference into the current model-tool execution world. */
@@ -264,13 +279,42 @@ function reasoningInfo(
   }
 }
 
-/** Merge deployment headers while removing case-insensitive attribution collisions. */
-function requestHeaders(headers: Readonly<Record<string, string>> | undefined): Record<string, string> {
-  const attribution = attributionHeaders()
-  const reserved = new Set(Object.keys(attribution).map(name => name.toLowerCase()))
-  return {
-    ...Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => !reserved.has(name.toLowerCase()))),
-    ...attribution,
+/** Native header TypeErrors can echo credentials; other plugin errors own their public message. */
+function requestHeaderDiagnostic(error: unknown): string {
+  if (error instanceof TypeError) {
+    return 'TypeError during header preparation; check the contributing plugin\'s header names, values, and configuration'
+  }
+  return error instanceof Error
+    ? error.message
+    : 'the contributing plugin threw a non-Error value; throw an Error with a safe diagnostic'
+}
+
+/** Prepare request-owned headers without allowing contributors to replace attribution. */
+function requestHeaders(
+  configured: Readonly<Record<string, string>> | undefined,
+  options: GenerateOptions<string>,
+  baseURL: string,
+  prepare: PiAiAdapterOptions['prepareHeaders'],
+): Record<string, string> {
+  try {
+    const initial = new Headers()
+    // Profile aliases overwrite case-insensitively; the Headers constructor appends them.
+    for (const [name, value] of Object.entries(configured ?? {})) initial.set(name, value)
+    const request: PiAiRequestHeaderContext = Object.freeze({
+      provider: options.provider,
+      model: options.model,
+      baseURL,
+      ...options.sessionId === undefined ? {} : { sessionId: options.sessionId },
+      ...options.purpose === undefined ? {} : { purpose: options.purpose },
+    })
+    const headers = prepare === undefined ? initial : prepare(request, initial)
+    for (const [name, value] of Object.entries(attributionHeaders())) headers.set(name, value)
+    return Object.fromEntries(headers)
+  } catch (error) {
+    throw new LlmError(
+      `pi-ai request header preparation failed for provider "${options.provider}": ${requestHeaderDiagnostic(error)}`,
+      'REQUEST_HEADERS', { cause: error },
+    )
   }
 }
 
@@ -311,9 +355,13 @@ export class PiAiAdapter extends LlmAdapter {
       for (const windows of profile.peak.values()) {
         for (const window of windows) {
           for (const candidate of window.providers) {
+            // Only a destination the installed catalog describes executes
+            // inside this adapter. Any other one is a route the deployment
+            // registered, and the LLM service dispatches it there; building a
+            // catalog provider for it would claim a route this adapter cannot
+            // describe.
+            if (catalogProvider(candidate.provider) === undefined) continue
             if (profiles.has(candidate.provider) || alternates.has(candidate.provider)) continue
-            // Configuration refused a candidate the installed catalog does not
-            // describe, and the catalog is fixed for the process's lifetime.
             const built = buildProvider({
               provider: candidate.provider,
               displayName: candidate.provider,
@@ -359,9 +407,11 @@ export class PiAiAdapter extends LlmAdapter {
 
   /**
    * The route one request actually uses: the configured route, or the first
-   * candidate of the first peak window containing `now` that serves the
-   * model. Configuration refuses a candidate the catalog does not describe, so
-   * the fall-through below only protects an already-published snapshot.
+   * candidate of the first peak window containing `now` that serves the model.
+   * A destination this adapter cannot describe runs on a route the deployment
+   * registered, which `alternateRoute()` hands to the LLM service before this
+   * snapshot is chosen; a direct adapter caller keeps the requested route
+   * rather than dispatch a provider this snapshot never built.
    * @param snapshot - the frozen resolution.
    * @param provider - the configured route the request named.
    * @param model - the model id.
@@ -372,13 +422,8 @@ export class PiAiAdapter extends LlmAdapter {
     const primary = this.profileOf(snapshot, provider)
     const windows = primary.peak.get(model)
     const window = windows === undefined ? undefined : selectPeakWindow(windows, now)
-    if (window !== undefined) {
-      // Configuration refused an empty window and a candidate the installed
-      // catalog does not describe or which does not serve the model it names,
-      // and `current()` registered into this snapshot every candidate it
-      // accepted.
-      // oxlint-disable-next-line typescript/no-non-null-assertion -- validation guarantees a first candidate
-      const candidate = window.providers[0]!
+    const candidate = window?.providers[0]
+    if (candidate !== undefined && catalogProvider(candidate.provider) !== undefined) {
       // A candidate may name another model of its provider; omission keeps the
       // routed model's own id.
       const served = candidate.model === undefined || candidate.model.length === 0 ? model : candidate.model
@@ -435,12 +480,16 @@ export class PiAiAdapter extends LlmAdapter {
       }
       return snapshot.models.getModels(provider).map((model) => {
         const routing = routingOf(profile, model.id)
+        // The bundled catalog ships the release marking no listing reports; a
+        // route the deployment declared itself has none to show.
+        const badge = bundledBadge(provider, model.id)
         return {
           provider,
           id: model.id,
           name: model.name,
           inputModalities: [...model.input],
           ...routing === undefined ? {} : { routing },
+          ...badge === undefined ? {} : { badge },
         }
       })
     })
@@ -498,6 +547,30 @@ export class PiAiAdapter extends LlmAdapter {
       profile.configuredMaxTokens.get(model),
       routingOf(profile, model),
     )
+  }
+
+  /**
+   * The route a peak window sends one request to when this adapter cannot
+   * execute the destination itself. A destination the installed catalog
+   * describes stays local: the snapshot materializes it without a configured
+   * route. Any other destination is a route the deployment registered, which
+   * the LLM service executes while this route keeps the call's identity.
+   * @param provider - provider route the caller named.
+   * @param model - exact model id the caller named.
+   * @returns the registered route to execute, or `undefined` to execute locally.
+   */
+  override alternateRoute(provider: string, model: string): LlmAlternateRoute | undefined {
+    const windows = this.current().profiles.get(provider)?.peak.get(model)
+    if (windows === undefined) return undefined
+    const window = selectPeakWindow(windows, this.now())
+    if (window === undefined) return undefined
+    // oxlint-disable-next-line typescript/no-non-null-assertion -- validation refuses an empty window
+    const candidate = window.providers[0]!
+    if (catalogProvider(candidate.provider) !== undefined) return undefined
+    return {
+      provider: candidate.provider,
+      model: candidate.model === undefined || candidate.model.length === 0 ? model : candidate.model,
+    }
   }
 
   override prepareCall(provider: string, model: string, _signal?: AbortSignal): Promise<PreparedAdapterCall> {
@@ -586,6 +659,8 @@ export class PiAiAdapter extends LlmAdapter {
           attachments,
           resolveImageAccess: ref => this.config.resolveImageAccess?.(attachments, ref),
           maxRequestImageBytes: profile.maxRequestImageBytes,
+          maxRequestImages: profile.maxRequestImages,
+          imageOffloadCountQuantum: profile.imageOffloadCountQuantum,
           requestImagePolicy: {
             maxPixels: profile.requestImagePixelBudget,
             maxBytes: profile.requestImageMaxBytes,
@@ -600,9 +675,7 @@ export class PiAiAdapter extends LlmAdapter {
         ...options.maxTokens === undefined ? {} : { maxTokens },
         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
         signal: watchdog.signal,
-        // Profile headers are deployment-owned; attribution names are
-        // Harness-owned and therefore win collisions.
-        headers: requestHeaders(profile.headers),
+        headers: requestHeaders(profile.headers, options, model.baseUrl, this.config.prepareHeaders),
       })
       const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id)[Symbol.asyncIterator]()
       let exhausted = false

@@ -242,8 +242,13 @@ describe('LlmRuntime', () => {
         tools: [search],
         toolHistory: { tools: [], updates: [{ messageId: added.id, additions: [search] }] },
       }))
-      expect(adapter.lastOptions?.tools).toEqual([{ ...search, deferLoading: true }])
-      expect(adapter.lastOptions?.messages).toEqual([added])
+      if (mode === 'in-history') {
+        expect(adapter.lastOptions?.tools).toEqual([{ ...search, deferLoading: true }])
+        expect(adapter.lastOptions?.messages).toEqual([added])
+      } else {
+        expect(adapter.lastOptions?.tools).toEqual([search])
+        expect(adapter.lastOptions?.messages).toEqual([])
+      }
 
       const afterRemoval = await ctx.llm.prepareCall({ provider: 'test-provider', model: 'test-model' })
       await collect(afterRemoval.stream({
@@ -697,6 +702,22 @@ describe('LlmRuntime', () => {
     await expect(ctx.llm.listModels('catalog')).resolves.toEqual([{
       provider: 'catalog', id: 'fast', name: 'source mutated', description: 'Low latency', inputModalities: ['text'],
     }])
+  })
+
+  it('detaches advertised model badges, including their translations', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    const translated = { text: { en: 'New', zh: '新' }, tone: 'info' as const }
+    const literal = { text: '1017', tone: 'neutral' as const }
+    ctx.llm.registerAdapter(['catalog'], new CatalogAdapter({ id: 'catalog', name: 'Catalog' }, [
+      { provider: 'catalog', id: 'new', name: 'New', badge: translated },
+      { provider: 'catalog', id: 'dated', name: 'Dated', badge: literal },
+    ]))
+    const [first, second] = await ctx.llm.listModels('catalog')
+    expect(first?.badge).toEqual(translated)
+    expect(first?.badge).not.toBe(translated)
+    expect(first?.badge?.text).not.toBe(translated.text)
+    expect(second?.badge).toEqual(literal)
   })
 
   it('defaults adapters to their route name and an empty advisory model list', async () => {
@@ -1473,7 +1494,7 @@ describe('LlmRuntime', () => {
     await ctx.plugin(LlmRuntime)
     const routing: LlmModelRouting = {
       windows: [
-        { from: '21:00', to: '03:00', timeZone: 'Asia/Tokyo', provider: 'opencode-go' },
+        { from: '21:00', to: '03:00', timeZone: 'Asia/Tokyo', provider: 'opencode-go', model: 'kimi-k3' },
         { from: '09:00', to: '17:00', provider: 'ollama-cloud', days: ['sat', 'sun'] },
       ],
     }
@@ -1506,6 +1527,8 @@ describe('LlmRuntime', () => {
     { routing: { windows: [{ from: '21:00', to: '03:00', provider: 'p', days: 'mon' }] }, label: 'non-array days' },
     { routing: { windows: [{ from: '21:00', to: '03:00', provider: 'p', days: ['mon', 1] }] }, label: 'non-string day' },
     { routing: { windows: [{ from: '21:00', to: '03:00', provider: 'p', days: [''] }] }, label: 'empty day' },
+    { routing: { windows: [{ from: '21:00', to: '03:00', provider: 'p', model: '' }] }, label: 'empty model' },
+    { routing: { windows: [{ from: '21:00', to: '03:00', provider: 'p', model: 1 }] }, label: 'non-string model' },
   ])('rejects invalid routing metadata in a catalog read ($label)', async ({ routing }) => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
@@ -1787,6 +1810,109 @@ describe('LlmRuntime', () => {
     expect(ctx.llm.listProviders()).toEqual([{ id: 'm2', name: 'm2' }])
     handle()
     expect(ctx.llm.listProviders()).toEqual([])
+  })
+})
+
+describe('alternate route dispatch', () => {
+  /** One destination route: answers describes from its own catalog and records each execution. */
+  class DestinationAdapter extends ScriptedAdapter {
+    /** Every call this destination actually executed, as `provider/model`. */
+    readonly calls: string[] = []
+
+    override providerRetryPolicy() {
+      return resolveRetryPolicy({ mode: 'always' }, 'destination retryPolicy')
+    }
+
+    override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+      return Promise.resolve({
+        provider,
+        id: model,
+        name: `${provider}:${model}`,
+        inputModalities: ['text'],
+        context: { contextWindow: 33_000 },
+        reasoning: {
+          efforts: [{ id: ReasoningEffortId('low'), name: 'Low' }],
+          defaultEffort: ReasoningEffortId('low'),
+        },
+      })
+    }
+
+    override stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+      this.calls.push(`${options.provider}/${options.model}`)
+      return super.stream(options)
+    }
+  }
+
+  /** One requested route that hands every call to `alternate`. */
+  class RedirectingAdapter extends ScriptedAdapter {
+    /** Every question the LLM service asked this adapter. */
+    readonly asked: { provider: string; model: string }[] = []
+
+    constructor(private readonly alternate: { provider: string; model: string } | undefined) {
+      super(SCRIPT)
+    }
+
+    override alternateRoute(provider: string, model: string) {
+      this.asked.push({ provider, model })
+      return this.alternate
+    }
+  }
+
+  /**
+   * Register one redirecting route beside its destination.
+   * @param alternate - the route the requested adapter hands calls to.
+   * @returns the requested adapter, the destination adapter, and the runtime.
+   */
+  async function harness(alternate: { provider: string; model: string } | undefined) {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    const requested = new RedirectingAdapter(alternate)
+    ctx.llm.registerAdapter(['requested'], requested)
+    const destination = new DestinationAdapter(SCRIPT)
+    ctx.llm.registerAdapter(['destination'], destination)
+    return { ctx, requested, destination }
+  }
+
+  it('dispatches a prepared call through the route the adapter names, keeping the requested identity', async () => {
+    const { ctx, requested, destination } = await harness({ provider: 'destination', model: 'served-model' })
+    const prepared = await ctx.llm.prepareCall({ provider: 'requested', model: 'asked-model' })
+
+    expect(requested.asked).toEqual([{ provider: 'requested', model: 'asked-model' }])
+    // The call stays the requested route's for logging and pickers, while the
+    // capabilities describe what actually executes.
+    expect(prepared.config).toMatchObject({ provider: 'requested', model: 'asked-model' })
+    expect(prepared.context).toEqual({ contextWindow: 33_000 })
+    expect(prepared.inputModalities).toEqual(['text'])
+    // Recovery belongs to the requested route, not the substituted one.
+    expect(prepared.retryPolicy.mode).toBe('normal')
+
+    await collect(prepared.stream({ ...prepared.config, messages: [] }))
+    expect(destination.calls).toEqual(['destination/served-model'])
+  })
+
+  it('dispatches a direct stream through the named route', async () => {
+    const { ctx, destination } = await harness({ provider: 'destination', model: 'served-model' })
+    await collect(ctx.llm.stream({ provider: 'requested', model: 'asked-model', messages: [] }))
+    expect(destination.calls).toEqual(['destination/served-model'])
+  })
+
+  it('keeps local dispatch when the adapter names no route', async () => {
+    const { ctx, destination } = await harness(undefined)
+    const prepared = await ctx.llm.prepareCall({ provider: 'requested', model: 'asked-model' })
+    await collect(prepared.stream({ ...prepared.config, messages: [] }))
+    expect(destination.calls).toEqual([])
+    expect(prepared.context).toBeUndefined()
+  })
+
+  it('fails a call whose alternate route no adapter serves', async () => {
+    const { ctx } = await harness({ provider: 'absent', model: 'served-model' })
+    await expect(ctx.llm.prepareCall({ provider: 'requested', model: 'asked-model' }))
+      .rejects.toMatchObject({ code: 'NO_ADAPTER' })
+    await expect(ctx.llm.prepareCall({ provider: 'requested', model: 'asked-model' }))
+      .rejects.toThrow('executes on provider "absent"')
+    const chunks = await collect(ctx.llm.stream({ provider: 'requested', model: 'asked-model', messages: [] }))
+    expect(chunks).toHaveLength(1)
+    expect(chunks[0]).toMatchObject({ type: 'finish', reason: { kind: 'error', failure: { code: 'NO_ADAPTER' } } })
   })
 })
 

@@ -92,7 +92,6 @@ interface ModelRowProps {
   onChange: (model: DeepSeekModelDraft) => void
   onToggle: () => void
   onRemove: () => void
-  /** Destination providers offered for peak routing; absent hides the control. */
   routingProviders?: readonly RoutingProviderOption[] | undefined
   /** Apply one peak route, or `undefined` to clear it. */
   onRoutingChange?: ((next: RoutingDraft | undefined) => void) | undefined
@@ -107,13 +106,14 @@ function windowValue(t: (key: ModelsKey) => string): string {
   return `${PEAK_WINDOW.utc} / ${PEAK_WINDOW.jst} · ${t('routingWeekdays')}`
 }
 
+
 function rowHalf(event: DragEvent<HTMLElement>): 'before' | 'after' {
   const rect = event.currentTarget.getBoundingClientRect()
   return event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
 }
 
 /**
- * Render consistent model identity, capacity, and input-type controls.
+ * Render model fields with the display name in the expanded area of narrow rows.
  * @param props - drafted fields and their owning editor's actions.
  * @returns one expandable model entry.
  */
@@ -166,6 +166,27 @@ export function ModelRow(props: ModelRowProps): ReactNode {
   const routingModelOptions = destination !== undefined && destination.model !== '' && !routingModels.includes(destination.model)
     ? [destination.model, ...routingModels]
     : routingModels
+  const modelField = (field: 'id' | 'name') => (
+    <label className={`${styles['modelField']} ${field === 'name' ? styles['modelName'] : ''}`}>
+      {field === 'name'
+        ? <span className={`${styles['modelFieldLabel']} ${styles['modelNameLabel']}`}>{t('modelName')}</span>
+        : null}
+      <input
+        className={styles['input']}
+        type="text"
+        value={typeof model[field] === 'string' ? model[field] : ''}
+        placeholder={t(field === 'id' ? 'modelId' : 'modelName')}
+        aria-label={`${t(field === 'id' ? 'modelId' : 'modelName')} ${String(position)}`}
+        disabled={disabled}
+        onFocus={field === 'name' && !props.expanded ? props.onToggle : undefined}
+        onChange={(event) => {
+          const value = event.target.value
+          props.onFieldChange(field, field === 'name' && value === '' ? undefined : value)
+        }}
+        onBlur={field === 'id' ? event => props.onIdBlur?.(event.target.value) : undefined}
+      />
+    </label>
+  )
   return (
     <div
       className={styles['modelEntry']}
@@ -188,8 +209,8 @@ export function ModelRow(props: ModelRowProps): ReactNode {
         props.order.onDrop(rowHalf(event))
       }}
     >
-      <div className={styles['modelRow']}>
-        <Tooltip label={t('reorderModelHelp')}>
+      <div className={styles['modelRow']} data-expanded={props.expanded || undefined}>
+        <Tooltip label={t('reorderModelHelp')} portal>
           <button
             type="button"
             className={`${styles['iconButton']} ${styles['modelDragHandle']}`}
@@ -215,29 +236,14 @@ export function ModelRow(props: ModelRowProps): ReactNode {
             <IconDragHandleOutlineRegular size={14} />
           </button>
         </Tooltip>
-        {(['id', 'name'] as const).map(field => (
-          <input
-            key={field}
-            className={styles['input']}
-            type="text"
-            value={typeof model[field] === 'string' ? model[field] : ''}
-            placeholder={t(field === 'id' ? 'modelId' : 'modelName')}
-            aria-label={`${t(field === 'id' ? 'modelId' : 'modelName')} ${String(position)}`}
-            disabled={disabled}
-            onChange={(event) => {
-              const value = event.target.value
-              props.onFieldChange(field, field === 'name' && value === '' ? undefined : value)
-            }}
-            onBlur={field === 'id' ? event => props.onIdBlur?.(event.target.value) : undefined}
-          />
-        ))}
+        {modelField('id')}
         <button
           type="button"
           className={styles['iconButton']}
           aria-label={`${t('modelAdvanced')} ${String(position)}`}
           aria-expanded={props.expanded}
           title={t('modelAdvanced')}
-          onClick={props.onToggle}
+          onClick={(event) => { event.currentTarget.focus(); props.onToggle() }}
         >
           {props.expanded ? <IconChevronDownOutlineRegular /> : <IconChevronRightOutlineRegular />}
         </button>
@@ -251,93 +257,94 @@ export function ModelRow(props: ModelRowProps): ReactNode {
         >
           <IconTrashOutlineRegular size={14} />
         </button>
+        {modelField('name')}
+        {props.expanded
+          ? (
+            <div className={styles['modelAdvanced']}>
+              {(['contextWindow', 'maxTokens'] as const).map(field => (
+                <label className={styles['modelField']} key={field}>
+                  <span className={styles['modelFieldLabel']}>{t(field)}</span>
+                  <input
+                    className={styles['input']}
+                    type="text"
+                    inputMode="numeric"
+                    value={props[field].value}
+                    placeholder={props[field].placeholder}
+                    aria-label={`${t(field)} ${String(position)}`}
+                    disabled={disabled}
+                    onChange={(event) => { props[field].onChange(event.target.value) }}
+                    onBlur={props[field].onBlur}
+                  />
+                </label>
+              ))}
+              <ModelInputTypes
+                model={model} field={props.inputField} position={position}
+                fallback={props.inputFallback} disabled={disabled || props.inputLoading === true} t={t} onChange={props.onChange}
+              />
+              {props.reasoningLevels !== undefined && props.reasoningLevels.length > 0
+                ? (
+                  <ModelReasoningEfforts
+                    model={model} levels={props.reasoningLevels} position={position} disabled={disabled} t={t} onChange={props.onChange}
+                  />
+                )
+                : null}
+              {destination === undefined || routingOptions.length === 0
+                ? null
+                : (
+                  <div className={styles['routingFields']}>
+                    <span className={styles['modelFieldLabel']}>{t('peakRouting')}</span>
+                    <label className={styles['modelField']}>
+                      <span className={styles['modelFieldLabel']}>{t('routingProvider')}</span>
+                      <select
+                        className={`${styles['input']} ${styles['selectInput']}`}
+                        value={destination.provider}
+                        aria-label={`${t('routingProvider')} ${String(position)}`}
+                        disabled={disabled}
+                        onChange={(event) => { editRouting({ provider: event.target.value }) }}
+                      >
+                        <option value="">{t('routingNone')}</option>
+                        {routingOptions.map(option => (
+                          <option key={option.id} value={option.id}>{option.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className={styles['modelField']}>
+                      <span className={styles['modelFieldLabel']}>{t('routingModel')}</span>
+                      <select
+                        className={`${styles['input']} ${styles['selectInput']}`}
+                        value={destination.model}
+                        aria-label={`${t('routingModel')} ${String(position)}`}
+                        disabled={disabled || destination.provider === ''}
+                        onChange={(event) => { editRouting({ model: event.target.value }) }}
+                      >
+                        {/* The destination model is a choice, not a default: the
+                            placeholder asks for one and cannot be selected back. */}
+                        <option value="" disabled>{t('routingModelPlaceholder')}</option>
+                        {routingModelOptions.map(id => (
+                          <option key={id} value={id}>{id}</option>
+                        ))}
+                      </select>
+                    </label>
+                    {!destinationChosen
+                      ? <p className={styles['routingHint']}>{t('routingHint')}</p>
+                      : (
+                        <>
+                          {/* The period is policy, not a setting: the window is
+                              Ollama Cloud's weekday peak, shown in both zones the
+                              operator reasons in. */}
+                          <div className={styles['routingWindow']}>
+                            <span className={styles['modelFieldLabel']}>{t('routingWindow')}</span>
+                            <p className={styles['routingWindowValue']}>{windowValue(t)}</p>
+                            <p className={styles['routingHint']}>{t('routingPeakNote')}</p>
+                          </div>
+                        </>
+                      )}
+                  </div>
+                )}
+            </div>
+          )
+          : null}
       </div>
-      {props.expanded
-        ? (
-          <div className={styles['modelAdvanced']}>
-            {(['contextWindow', 'maxTokens'] as const).map(field => (
-              <label className={styles['modelField']} key={field}>
-                <span className={styles['modelFieldLabel']}>{t(field)}</span>
-                <input
-                  className={styles['input']}
-                  type="text"
-                  inputMode="numeric"
-                  value={props[field].value}
-                  placeholder={props[field].placeholder}
-                  aria-label={`${t(field)} ${String(position)}`}
-                  disabled={disabled}
-                  onChange={(event) => { props[field].onChange(event.target.value) }}
-                  onBlur={props[field].onBlur}
-                />
-              </label>
-            ))}
-            <ModelInputTypes
-              model={model} field={props.inputField} position={position}
-              fallback={props.inputFallback} disabled={disabled || props.inputLoading === true} t={t} onChange={props.onChange}
-            />
-            {props.reasoningLevels !== undefined && props.reasoningLevels.length > 0
-              ? (
-                <ModelReasoningEfforts
-                  model={model} levels={props.reasoningLevels} position={position} disabled={disabled} t={t} onChange={props.onChange}
-                />
-              )
-              : null}
-            {destination === undefined || routingOptions.length === 0
-              ? null
-              : (
-                <div className={styles['routingFields']}>
-                  <span className={styles['modelFieldLabel']}>{t('peakRouting')}</span>
-                  <label className={styles['modelField']}>
-                    <span className={styles['modelFieldLabel']}>{t('routingProvider')}</span>
-                    <select
-                      className={`${styles['input']} ${styles['selectInput']}`}
-                      value={destination.provider}
-                      aria-label={`${t('routingProvider')} ${String(position)}`}
-                      disabled={disabled}
-                      onChange={(event) => { editRouting({ provider: event.target.value }) }}
-                    >
-                      <option value="">{t('routingNone')}</option>
-                      {routingOptions.map(option => (
-                        <option key={option.id} value={option.id}>{option.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className={styles['modelField']}>
-                    <span className={styles['modelFieldLabel']}>{t('routingModel')}</span>
-                    <select
-                      className={`${styles['input']} ${styles['selectInput']}`}
-                      value={destination.model}
-                      aria-label={`${t('routingModel')} ${String(position)}`}
-                      disabled={disabled || destination.provider === ''}
-                      onChange={(event) => { editRouting({ model: event.target.value }) }}
-                    >
-                      {/* The destination model is a choice, not a default: the
-                          placeholder asks for one and cannot be selected back. */}
-                      <option value="" disabled>{t('routingModelPlaceholder')}</option>
-                      {routingModelOptions.map(id => (
-                        <option key={id} value={id}>{id}</option>
-                      ))}
-                    </select>
-                  </label>
-                  {!destinationChosen
-                    ? <p className={styles['routingHint']}>{t('routingHint')}</p>
-                    : (
-                      <>
-                        {/* The period is policy, not a setting: the window is
-                            Ollama Cloud's weekday peak, shown in both zones the
-                            operator reasons in. */}
-                        <div className={styles['routingWindow']}>
-                          <span className={styles['modelFieldLabel']}>{t('routingWindow')}</span>
-                          <p className={styles['routingWindowValue']}>{windowValue(t)}</p>
-                          <p className={styles['routingHint']}>{t('routingPeakNote')}</p>
-                        </div>
-                      </>
-                    )}
-                </div>
-              )}
-          </div>
-        )
-        : null}
     </div>
   )
 }

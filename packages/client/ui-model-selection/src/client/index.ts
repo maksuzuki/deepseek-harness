@@ -178,6 +178,7 @@ export function apply(ctx: ClientContext): void {
       locale: NS,
       children: {
         'conversation.input.model.label': { kind: 'single', scope: 'session', inline: true },
+        'conversation.input.model.options': { kind: 'list', scope: 'session' },
       },
       inject: (sessionId): ModelSelectInjected => {
         const directory = models.directoryFor(sessionId)
@@ -188,6 +189,7 @@ export function apply(ctx: ClientContext): void {
           load: () => {
             if (available) directory.load().catch(() => { /* surfaced on the store */ })
           },
+          resolveText: text => ctx.locale.resolveText(text),
           select: (selection: ModelSelection) => available
             ? directory.select(selection)
             : Promise.resolve(undefined),

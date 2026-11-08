@@ -2,9 +2,11 @@
  * Time-windowed provider substitution for one pi-ai model entry.
  *
  * A model entry may name windows in which the request is served by another
- * provider resolved from pi-ai's installed catalog. The route keeps its own
- * provider, endpoint, and display name, so the switch is invisible to the
- * session log: only the wire endpoint follows the active window.
+ * provider: one the installed catalog describes, executed inside this adapter,
+ * or a route the deployment registers, executed by whichever adapter owns it.
+ * The route keeps its own provider, endpoint, and display name, so the switch
+ * is invisible to the session log: only the wire endpoint follows the active
+ * window.
  *
  * A window is a local wall-clock interval, evaluated in its own IANA zone so a
  * deployment's peak hours do not follow the host process's zone. Windows
@@ -18,7 +20,12 @@
 
 /** One provider a peak window may serve a model with. */
 export interface PiAiPeakProvider {
-  /** pi-ai provider id, resolved against the installed catalog. */
+  /**
+   * Provider route that serves the window's requests. A route the installed
+   * pi-ai catalog describes runs inside this adapter, with or without a profile
+   * of its own; any other one is executed by the route the deployment
+   * registers under this id.
+   */
   provider: string
   /**
    * Model id the candidate receives. Omission keeps the routed model's own id,
@@ -28,11 +35,11 @@ export interface PiAiPeakProvider {
   model?: string
   /**
    * Credential reference (environment-variable name) resolved per request
-   * through the credential seam. Omission uses the candidate route's own
-   * `apiKeyEnv` when the candidate is a configured route, so a window keeps
-   * that route's authentication without repeating it; a candidate this build
-   * knows only as an installed-catalog provider has no route profile to
-   * inherit from and defers to pi-ai's provider-native ambient discovery.
+   * through the credential seam, for a destination resolved from the installed
+   * catalog. Omission uses the candidate route's own `apiKeyEnv` when the
+   * candidate is a configured route, and otherwise defers to pi-ai's
+   * provider-native ambient discovery. A destination that executes on its own
+   * registered route authenticates through that route and refuses this field.
    */
   apiKeyEnv?: string
 }

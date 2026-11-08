@@ -24,6 +24,7 @@ import type { ResolvedRetryPolicy, RetryPolicyConfig } from '@deepseek-ai/dsh-ll
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import {
   CACHE_CONTROL_FORMATS,
+  catalogProvider,
   CHAT_TEMPLATE_VARS,
   MAX_TOKENS_FIELDS,
   MODALITIES,
@@ -58,6 +59,19 @@ export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
  * Deployments behind stricter gateways lower it per route.
  */
 export const DEFAULT_MAX_REQUEST_IMAGE_BYTES = 20 * 1024 * 1024
+/**
+ * Default request-level bound on retained image occurrences: Azure OpenAI's
+ * documented limit of 50 images per GPT-4o and GPT-4.1 request
+ * (https://learn.microsoft.com/azure/foundry/openai/quotas-limits). Routes
+ * whose provider accepts more images raise it.
+ */
+export const DEFAULT_MAX_REQUEST_IMAGES = 50
+/**
+ * Default number of oldest occurrences one count overflow offloads, so a
+ * saturated route rewrites its request prefix once per ten new images rather
+ * than once per image.
+ */
+export const DEFAULT_IMAGE_OFFLOAD_COUNT_QUANTUM = 10
 /** Default total-pixel budget preserves the complete 2048px normalized attachment. */
 export const DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET = 2048 * 2048
 /** Default raw encoded-byte target before inline base64 expansion; the smallest quality-ladder output is used when no quality fits. */
@@ -174,6 +188,18 @@ export interface PiAiProviderProfile {
    * requests instead of being rejected by a request-size cap.
    */
   maxRequestImageBytes?: number
+  /**
+   * Maximum retained image occurrences per request. A request carrying more
+   * fails with `IMAGE_OFFLOAD_REQUIRED` naming how many of the oldest
+   * occurrences to offload.
+   */
+  maxRequestImages?: number
+  /**
+   * Oldest occurrences offloaded per count overflow (default 10, capped at
+   * {@link maxRequestImages}); an explicit value must not exceed it. Larger
+   * steps rewrite the request prefix less often.
+   */
+  imageOffloadCountQuantum?: number
   /** Total-pixel budget for each deterministic inline request version. */
   requestImagePixelBudget?: number
   /**
@@ -198,6 +224,10 @@ export interface ResolvedPiAiProviderProfile
   streamIdleTimeoutMs: number
   /** Positive request-level base64 image payload bound after defaulting. */
   maxRequestImageBytes: number
+  /** Positive request-level retained image count bound after defaulting. */
+  maxRequestImages: number
+  /** Positive count-overflow offload step, at most {@link maxRequestImages}, after defaulting. */
+  imageOffloadCountQuantum: number
   /** Positive total-pixel request-version budget after defaulting. */
   requestImagePixelBudget: number
   /** Positive raw request-version byte target after defaulting; the smallest quality-ladder output is used when no quality fits. */
@@ -361,6 +391,8 @@ const profile = z.object({
   websocketConnectTimeoutMs: z.natural(),
   streamIdleTimeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
   maxRequestImageBytes: z.number().step(1).min(1).default(DEFAULT_MAX_REQUEST_IMAGE_BYTES),
+  maxRequestImages: z.number().step(1).min(1).default(DEFAULT_MAX_REQUEST_IMAGES),
+  imageOffloadCountQuantum: z.number().step(1).min(1),
   requestImagePixelBudget: z.number().step(1).min(1).default(DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET),
   requestImageMaxBytes: z.number().step(1).min(1).default(DEFAULT_REQUEST_IMAGE_MAX_BYTES),
   retryPolicy: RetryPolicySchema,
@@ -375,14 +407,38 @@ export const Config = z.object({
  * Reject new or changed provider profiles that cannot be served. Unchanged
  * stored profiles may need repair after a catalog upgrade and do not block
  * edits to another provider. Removed profiles require no catalog validation.
+ * A peak destination the installed catalog does not describe executes through
+ * the route that owns it, so a settings write also checks that the deployment
+ * registers one; the adapter itself cannot see the registry its host builds.
  * @param config - the resolved section to check.
  * @param previous - current resolved section; omission checks every provider.
+ * @param registeredRoute - whether the deployment currently registers one provider route; omission skips that check.
  * @throws Error naming the route and configuration entry that cannot be served.
  */
-export function assertServiceable(config: Options, previous?: Options): void {
+export function assertServiceable(
+  config: Options,
+  previous?: Options,
+  registeredRoute?: (provider: string) => boolean,
+): void {
   const changed = Object.fromEntries(Object.entries(config.providers ?? {}).filter(([provider, profile]) =>
     !deepEqualJson(profile, previous?.providers?.[provider])))
-  resolveProfiles(changed)
+  const resolved = resolveProfiles(changed)
+  if (registeredRoute === undefined) return
+  for (const profile of resolved.values()) {
+    for (const [model, windows] of profile.peak) {
+      for (const window of windows) {
+        for (const candidate of window.providers) {
+          if (catalogProvider(candidate.provider) !== undefined) continue
+          if (registeredRoute(candidate.provider)) continue
+          throw new Error(
+            `llm-pi-ai: provider "${profile.provider}" model "${model}" peak provider "${candidate.provider}"`
+            + ' is not a registered route; configure that provider route first, because this destination'
+            + ' executes through it',
+          )
+        }
+      }
+    }
+  }
 }
 
 /** Reject removed pre-release profile fields and name their replacements. */
@@ -456,6 +512,14 @@ export function resolveProfiles(
     if (!Number.isInteger(maxRequestImageBytes) || maxRequestImageBytes <= 0) {
       throw new Error(`llm-pi-ai: provider "${provider}" maxRequestImageBytes must be a positive integer`)
     }
+    const maxRequestImages = source.maxRequestImages ?? DEFAULT_MAX_REQUEST_IMAGES
+    if (!Number.isSafeInteger(maxRequestImages) || maxRequestImages <= 0) {
+      throw new Error(`llm-pi-ai: provider "${provider}" maxRequestImages must be a positive safe integer`)
+    }
+    const imageOffloadCountQuantum = source.imageOffloadCountQuantum ?? Math.min(DEFAULT_IMAGE_OFFLOAD_COUNT_QUANTUM, maxRequestImages)
+    if (!Number.isSafeInteger(imageOffloadCountQuantum) || imageOffloadCountQuantum <= 0 || imageOffloadCountQuantum > maxRequestImages) {
+      throw new Error(`llm-pi-ai: provider "${provider}" imageOffloadCountQuantum must be a positive safe integer no greater than maxRequestImages`)
+    }
     const requestImagePixelBudget = source.requestImagePixelBudget ?? DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET
     if (!Number.isSafeInteger(requestImagePixelBudget) || requestImagePixelBudget <= 0) {
       throw new Error(`llm-pi-ai: provider "${provider}" requestImagePixelBudget must be a positive safe integer`)
@@ -524,6 +588,8 @@ export function resolveProfiles(
       ...apiKeyEnv === undefined ? {} : { apiKeyEnv: credentialRef(apiKeyEnv) },
       streamIdleTimeoutMs,
       maxRequestImageBytes,
+      maxRequestImages,
+      imageOffloadCountQuantum,
       requestImagePixelBudget,
       requestImageMaxBytes,
       retryPolicy: resolveRetryPolicy(retryPolicy, `llm-pi-ai: provider "${provider}" retryPolicy`),
@@ -555,6 +621,8 @@ export function catalogAlternateProfile(provider: string, piProvider: Provider):
     displayName: provider,
     streamIdleTimeoutMs: DEFAULT_STREAM_IDLE_TIMEOUT_MS,
     maxRequestImageBytes: DEFAULT_MAX_REQUEST_IMAGE_BYTES,
+    maxRequestImages: DEFAULT_MAX_REQUEST_IMAGES,
+    imageOffloadCountQuantum: Math.min(DEFAULT_IMAGE_OFFLOAD_COUNT_QUANTUM, DEFAULT_MAX_REQUEST_IMAGES),
     requestImagePixelBudget: DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET,
     requestImageMaxBytes: DEFAULT_REQUEST_IMAGE_MAX_BYTES,
     retryPolicy: resolveRetryPolicy(undefined, `llm-pi-ai: catalog alternate "${provider}" retryPolicy`),

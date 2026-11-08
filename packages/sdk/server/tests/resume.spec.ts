@@ -50,17 +50,38 @@ async function initialized(root: string) {
 }
 
 describe('SDK persisted session resume', () => {
+  it('rejects independent subagent restoration before opening or repairing its log', async () => {
+    const root = await storageRoot()
+    const { ctx, server } = await initialized(root)
+    const child = await ctx.agents.create({
+      sessionId: SessionId('saved-child'),
+      meta: { origin: 'subagent', parentSession: SessionId('creator'), cwd: root },
+    })
+    child.agent.session.append('turn/start', { turn: 1 })
+    await ctx.sessions.flush(child.agent.session)
+    await child.dispose()
+    const resume = vi.spyOn(ctx.agents, 'resume')
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await expect(server.resume({ sessionId: 'saved-child' })).rejects.toThrow('resume its root session instead')
+    }
+    expect(resume).not.toHaveBeenCalled()
+    expect(ctx.agents.get(SessionId('saved-child'))).toBeUndefined()
+    await expect(server.shutdown()).resolves.toEqual({})
+  })
+
   it.each([
-    { model: 'mock', effort: undefined, expected: 'high' },
-    { model: 'other', effort: undefined, expected: undefined },
-    { model: 'mock', effort: 'low', expected: 'low' },
-  ])('applies the initialized route and effort on resume: $model / $effort', async ({ model, effort, expected }) => {
+    { model: 'mock', effort: undefined, expected: 'high', expectedThinking: true },
+    { model: 'other', effort: undefined, expected: undefined, expectedThinking: undefined },
+    { model: 'mock', effort: 'low', expected: 'low', expectedThinking: true },
+  ])('applies the initialized route and controls on resume: $model / $effort', async ({
+    model, effort, expected, expectedThinking,
+  }) => {
     const root = await storageRoot()
     const first = await initialized(root)
     await first.server.prompt({ sessionId: 'saved-effort', contentBlocks: [{ type: 'text', text: 'remember' }] })
     await first.server.wait({ sessionId: 'saved-effort' })
     first.ctx.agents.get(SessionId('saved-effort'))!.model.select({
-      provider: 'mock', model: 'mock', reasoningEffort: ReasoningEffortId('high'),
+      provider: 'mock', model: 'mock', reasoningEffort: ReasoningEffortId('high'), thinking: true,
     })
     await first.server.shutdown()
     await first.ctx.fiber.dispose()
@@ -76,6 +97,7 @@ describe('SDK persisted session resume', () => {
     expect(second.ctx.agents.get(SessionId('saved-effort'))!.model.current()).toEqual({
       provider: 'mock', model,
       ...expected === undefined ? {} : { reasoningEffort: expected },
+      ...expectedThinking === undefined ? {} : { thinking: expectedThinking },
     })
   })
 

@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   IconBranchOutlineRegular,
-  useAnchoredPosition,
   useDismissOnOutsidePointer,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
@@ -78,9 +77,6 @@ export function gitBranchReading(status: WorkspaceGitStatus): GitBranchReading |
   }
 }
 
-/** Unplaced portal panel: hidden but laid out so the placement clamp measures real dimensions. */
-const MEASURE_STYLE = { visibility: 'hidden', left: 0, top: 0 } as const
-
 /**
  * Ambient chip leading the composer's session-stats block's first row and the
  * question card's header, naming the checkout the Session workspace lives in:
@@ -100,7 +96,7 @@ export function GitBranchChip(props: GitBranchChipProps): React.JSX.Element | nu
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLButtonElement | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
-  const pos = useAnchoredPosition({ open, anchorRef: rootRef, panelRef, side: 'top', gap: 8, margin: 12 })
+  const anchorName = `--dsh-git-branch-${useId().replaceAll(':', '')}`
   useDismissOnOutsidePointer(rootRef, open, setOpen, panelRef)
   useEffect(() => {
     acquire(sessionId)
@@ -141,6 +137,7 @@ export function GitBranchChip(props: GitBranchChipProps): React.JSX.Element | nu
         aria-expanded={open}
         aria-label={label}
         title={label}
+        style={{ anchorName }}
         onClick={() => { setOpen(!open) }}
       >
         <IconBranchOutlineRegular />
@@ -152,7 +149,7 @@ export function GitBranchChip(props: GitBranchChipProps): React.JSX.Element | nu
           className={css.panel}
           role="dialog"
           aria-label={t('dialog.title')}
-          style={pos ?? MEASURE_STYLE}
+          style={{ positionAnchor: anchorName }}
         >
           <div className={css.title}>
             <span className={css.titleLabel}>

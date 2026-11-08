@@ -531,6 +531,26 @@ interface LlmNativeAuth {
 }
 ```
 
+目录条目可以携带提供方编写的 `badge`，供选择器显示在模型名称旁。它只是展示数据：`resolveModelInfo` 不返回它，模型请求也不携带它。
+
+```ts type-equiv
+/**
+ * Emphasis of a model badge: `neutral` states a plain fact, `info` highlights
+ * the model, `success` marks a benefit, and `warning` asks for attention.
+ */
+type LlmModelBadgeTone = 'neutral' | 'info' | 'success' | 'warning'
+```
+
+```ts type-equiv
+/** Short provider-authored label a selector shows beside one advertised model name. */
+interface LlmModelBadge {
+  /** One literal, or translations keyed by lowercase language id with a required English entry. */
+  text: LocalizedText
+  /** Emphasis of the label. */
+  tone: LlmModelBadgeTone
+}
+```
+
 ```ts type-equiv
 /** One local wall-clock window an adapter routes a model through another provider. */
 interface LlmRoutingWindow {
@@ -579,6 +599,11 @@ interface LlmModelInfo {
   inputModalities?: readonly ModelModality[]
   /** Windows in which the route's requests go to another provider; absent means none. */
   routing?: LlmModelRouting
+  /**
+   * Selector label advertised by catalog discovery; exact-route resolution
+   * omits it, and no model request or Session event carries it.
+   */
+  badge?: LlmModelBadge
 }
 ```
 
@@ -662,8 +687,21 @@ type RequestMessage = Message | RequestUserInput
 ```
 
 ```ts type-equiv
-/** A single model request, fully assembled. */
-interface GenerateOptions {
+/** Auxiliary request purposes declared by their producer packages. */
+interface LlmRequestPurposeMap {}
+```
+
+```ts type-equiv
+/** Declared auxiliary request purpose; ordinary conversation requests leave it absent. */
+type LlmRequestPurpose = Extract<keyof LlmRequestPurposeMap, string>
+```
+
+```ts type-equiv
+/**
+ * A single model request, fully assembled.
+ * @typeParam Purpose - declared purpose keys for callers; forwarding adapters may accept `string`.
+ */
+interface GenerateOptions<Purpose extends string = LlmRequestPurpose> {
   /** Registered provider route selecting the adapter instance. */
   provider: string
   model: string
@@ -706,7 +744,7 @@ interface GenerateOptions {
    * map the purpose to model-hidden transport metadata. Ordinary conversation
    * requests leave it unset.
    */
-  purpose?: 'compaction' | 'session-title'
+  purpose?: Purpose
 }
 ```
 
@@ -871,9 +909,28 @@ interface LlmCallConfigAdapterDefaults {
 
 [协议参考](../deepseek-llm-api-wire-extensions.zh.md)定义确切的请求标头、扩展事务、字段版本和接收方义务。随附组合会将 [`dsh_session_log`](../../packages/session/session-log-deepseek/README.zh.md) 注册为无损增量权威日志后缀，并将 [`dsh_plugin_packages`](../../packages/llm/plugin-package-inventory-deepseek/README.zh.md) 注册为完整存活 Loader 包集合。这些字段仍位于模型消息之外，也不会进入 pi-ai 适配器路径。
 
+## Pi-ai 请求头
+
+`PiAiRequestHeaderContext` 包含已准备调用的 provider、model、解析后的模型 `baseURL`，以及可选 Session id 和辅助用途。它不可变且不含消息或认证字段，与本次请求独有的 `Headers` 一起传入同步的 `llm-pi-ai/request-headers` waterfall。[适配器的请求头文档](../../packages/llm/llm-pi-ai/README.zh.md#request-headers)定义贡献的所有权、应用标识的优先级与失败行为。此扩展点仅适用于 pi-ai 推理请求。
+
 ## 服务与提供方约定
 
-`LlmAdapter` 是提供方约定：创建子类、实现 `stream()`，再用 `ctx.llm.registerAdapter(providers, adapter)` 注册一个适配器实例。`GenerateOptions.provider` 选择已注册适配器；`GenerateOptions.model` 会传给该适配器，无需在生命周期启动时注册。重复提供方路由会原子失败。可选的 `providerRetryPolicy()` 会按路由捕获并填入 normal 默认值，`providerInfo()` 与异步 `listModels()` 方法则为 `LlmRuntime.listProviders()` / `listModels()` 提供分离的 selector 元数据。该目录仅供参考，不是请求白名单：适配器仍是权威，并可接受未列出的模型 id。单次异步 `resolveModel()` 查询返回确切模型身份，以及可选的对正确性敏感的上下文容量、适配器配置的 `defaultMaxTokens`、由模型持有的有序推理强度 ID 和可选的部署默认值；字段缺失表示元数据不可用或保留提供方持有的行为，而不表示目录成员关系无效。解析器会接收可选的取消信号，并且必须在信号中止后迅速完成结算。`LlmRuntime.resolveModelInfo()` 会校验聚合结果并返回分离值。在最终适配器边界，`resolveCallConfig()` 仅在 `maxTokens` 缺失时填入输出默认值，并校验和填入推理强度，因此直接调用也无法绕过任何一项已配置行为；直接分派会在等待解析前捕获一项适配器注册。agent loop 则使用 `prepareCall()`，使模型解析、请求头持久记录和分派全程使用同一项注册，保留来自同一次查询的分离上下文元数据，并报告适配器填入的配置字段。适配器查找发生在 `llm/stream` waterfall 的终端 continuation，因此 listener 可以在查找前短路调用，或路由一个可变的一次性请求。AgentLoop 在外层 waterfall 返回流句柄时观察到一次请求尝试；这个有限边界不能证明惰性终端适配器已构造完成或开始提供方 I/O。`block-start` / `block-end` 的 `index` 关联与 assembler 共同意味着适配器只需 emit 格式正确的分片——块重组不是每个适配器各自的问题。`ctx.llm.stream()` 与 `llm/stream` waterfall 在一个轮次中的位置见 [architecture.md](../architecture.zh.md#turn-flow)。
+`LlmAdapter` 是提供方约定：创建子类、实现 `stream()`，再用 `ctx.llm.registerAdapter(providers, adapter)` 注册一个适配器实例。`GenerateOptions.provider` 选择已注册适配器；`GenerateOptions.model` 会传给该适配器，无需在生命周期启动时注册。重复提供方路由会原子失败。可选的 `alternateRoute()` 让适配器把一次调用交给另一条已注册路由——例如按时段切换提供方——此时请求的提供方与模型仍是该调用的身份，执行路由自行解析其凭据。可选的 `providerRetryPolicy()` 会按路由捕获并填入 normal 默认值，`providerInfo()` 与异步 `listModels()` 方法则为 `LlmRuntime.listProviders()` / `listModels()` 提供分离的 selector 元数据。该目录仅供参考，不是请求白名单：适配器仍是权威，并可接受未列出的模型 id。单次异步 `resolveModel()` 查询返回确切模型身份，以及可选的对正确性敏感的上下文容量、适配器配置的 `defaultMaxTokens`、由模型持有的有序推理强度 ID 和可选的部署默认值；字段缺失表示元数据不可用或保留提供方持有的行为，而不表示目录成员关系无效。解析器会接收可选的取消信号，并且必须在信号中止后迅速完成结算。`LlmRuntime.resolveModelInfo()` 会校验聚合结果并返回分离值。在最终适配器边界，`resolveCallConfig()` 仅在 `maxTokens` 缺失时填入输出默认值，并校验和填入推理强度，因此直接调用也无法绕过任何一项已配置行为；直接分派会在等待解析前捕获一项适配器注册。agent loop 则使用 `prepareCall()`，使模型解析、请求头持久记录和分派全程使用同一项注册，保留来自同一次查询的分离上下文元数据，并报告适配器填入的配置字段。适配器查找发生在 `llm/stream` waterfall 的终端 continuation，因此 listener 可以在查找前短路调用，或路由一个可变的一次性请求。AgentLoop 在外层 waterfall 返回流句柄时观察到一次请求尝试；这个有限边界不能证明惰性终端适配器已构造完成或开始提供方 I/O。`block-start` / `block-end` 的 `index` 关联与 assembler 共同意味着适配器只需 emit 格式正确的分片——块重组不是每个适配器各自的问题。`ctx.llm.stream()` 与 `llm/stream` waterfall 在一个轮次中的位置见 [architecture.md](../architecture.zh.md#turn-flow)。
+
+```ts type-equiv
+/**
+ * A route the LLM service executes one call through in place of the route the
+ * caller named. Returned by {@link LlmAdapter.alternateRoute}, it lets an
+ * adapter hand a call to a route another adapter owns — a time-windowed
+ * substitution, say — while the call keeps the requested route's identity.
+ */
+interface LlmAlternateRoute {
+  /** Registered provider route that executes the call. */
+  readonly provider: string
+  /** Exact model id that route receives. */
+  readonly model: string
+}
+```
 
 ```ts type-equiv
 /** One model call whose config and adapter registration were resolved together. */
@@ -942,6 +999,24 @@ declare abstract class LlmAdapter {
    * @returns the same target used by request serialization, before provider-internal processing.
    */
   imageRequestTarget(_provider: string, _model: string, image: ImageAttachmentRef): ImageRequestTarget;
+  /**
+   * The route one call executes through when this adapter cannot serve it
+   * itself. The LLM service resolves the returned route through the registry
+   * and dispatches there, while the call keeps the requested provider and model
+   * as its identity: the Session log, the model picker, and replay state do not
+   * follow the substitution. The executing route owns its credential, so this
+   * seam carries no key.
+   *
+   * Called once per call, before the credential await, by both
+   * {@link prepareCall} and a direct {@link stream}. Return `undefined` for
+   * local dispatch; a returned route no adapter serves fails the call with
+   * `NO_ADAPTER`. Implementations answer from state they already resolved and
+   * perform no I/O.
+   * @param _provider - provider route the caller named.
+   * @param _model - exact model id the caller named.
+   * @returns the route that executes the call, or `undefined` to execute locally.
+   */
+  alternateRoute(_provider: string, _model: string): LlmAlternateRoute | undefined;
   /**
    * List models this adapter can currently advertise for one owned provider.
    * Core routing accepts unlisted model ids; catalog-driven entry points such
@@ -1219,6 +1294,23 @@ The provider topology changed: an adapter registered or unregistered routes, or 
 
 Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
 
+<a id="llmmodels-updated--emit"></a>
+
+#### `llm/models-updated` — emit
+
+A provider's advertised models or display metadata changed; consumers reload `listModels()`.
+
+```ts cordis-catalog
+/**
+ * A provider's advertised models or display metadata changed; consumers reload `listModels()`.
+ * @mode emit
+ * @param provider - route whose model catalog changed.
+ */
+'llm/models-updated'(provider: string): void
+```
+
+Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
+
 <a id="llmstream--waterfall"></a>
 
 #### `llm/stream` — waterfall
@@ -1242,4 +1334,33 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 ```
 
 Source: [`packages/llm/llm/src/index.ts`](../../packages/llm/llm/src/index.ts)
+
+<a id="llm-pi-ai-events"></a>
+
+### `llm-pi-ai/*` events
+
+<a id="llm-pi-airequest-headers--waterfall"></a>
+
+#### `llm-pi-ai/request-headers` — waterfall
+
+Prepare headers for one pi-ai inference call, excluding model discovery. Listeners run synchronously and must call next(); they may edit only the request-owned headers and must not retain them. Throws fail the call with REQUEST_HEADERS before inference I/O. Harness attribution wins afterward. Non-TypeError messages are user-visible and must exclude secrets. TypeError details and non-Error values are replaced with safe guidance.
+
+```ts cordis-catalog
+/**
+ * Prepare headers for one pi-ai inference call, excluding model discovery.
+ * Listeners run synchronously and must call next(); they may edit only the
+ * request-owned headers and must not retain them. Throws fail the call with
+ * REQUEST_HEADERS before inference I/O. Harness attribution wins afterward.
+ * Non-TypeError messages are user-visible and must exclude secrets. TypeError
+ * details and non-Error values are replaced with safe guidance.
+ * @mode waterfall
+ * @param request - immutable routing metadata from the exact prepared call.
+ * @param headers - fresh profile headers, shared only within this dispatch.
+ * @param next - continue header preparation through the remaining listeners.
+ * @returns headers passed to pi-ai after Harness attribution is applied.
+ */
+'llm-pi-ai/request-headers'(request: PiAiRequestHeaderContext, headers: Headers, next: () => Headers): Headers
+```
+
+Source: [`packages/llm/llm-pi-ai/src/index.ts`](../../packages/llm/llm-pi-ai/src/index.ts)
 <!-- END GENERATED cordis-surface -->

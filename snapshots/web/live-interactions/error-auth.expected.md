@@ -10,13 +10,15 @@
 - text: Reply with a one-sentence description of event sourcing, then stop. {{clock}}
 - button "Copy"
 - status: Failed
-- button "Failed" [disabled]
+- button "Failed" [disabled] [expanded]
+- button "Injected context"
 - status:
   - text: This turn failedAPI key is invalid
   - code: AUTH
 - textbox "Message or run a task, / commands, @ files or sessions"
 - button "Add files or run commands"
 - 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Push guard ON" [pressed]
 - button "Select model, current DeepSeek · DeepSeek-V4-Flash": DeepSeek · DeepSeek-V4-Flash
 - button "Send message" [disabled]
 - text: 1 turns 1 steps

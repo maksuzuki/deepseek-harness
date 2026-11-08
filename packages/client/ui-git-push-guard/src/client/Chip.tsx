@@ -23,9 +23,9 @@ export type GuardChipProps =
 const GLYPH_SIZE = 14
 
 /**
- * Render this Session's own guard setting. Mount, window focus, and tab
- * visibility re-read the route so a change made in another client lands
- * without a reload; a click writes only this Session.
+ * Render this Session's own guard setting. Mount and tab visibility re-read
+ * the route so a change made in another client lands without a reload; a
+ * click writes only this Session.
  * @param props - the standard Session identity, injected route callbacks, and localized copy.
  * @returns the compact guard chip.
  */
@@ -36,25 +36,31 @@ export function GuardChip({ sessionId, loadState, saveState, t }: GuardChipProps
 
   useEffect(() => {
     let live = true
+    let pending: AbortController | undefined
     const refresh = (): void => {
-      loadState(sessionId).then(
+      // A hidden page is on its way out: starting a fetch now only gets it
+      // aborted by navigation, which WebKit reports as a page error.
+      if (document.visibilityState !== 'visible') return
+      pending?.abort()
+      const controller = new AbortController()
+      pending = controller
+      loadState(sessionId, controller.signal).then(
         (value) => {
           if (live) {
             setEnabled(value.session === true)
             setFailed(false)
           }
         },
-        () => {
-          if (live) setFailed(true)
+        (error: unknown) => {
+          if (live && !(error instanceof DOMException && error.name === 'AbortError')) setFailed(true)
         },
       )
     }
     refresh()
-    window.addEventListener('focus', refresh)
     document.addEventListener('visibilitychange', refresh)
     return () => {
       live = false
-      window.removeEventListener('focus', refresh)
+      pending?.abort()
       document.removeEventListener('visibilitychange', refresh)
     }
   }, [loadState, sessionId])

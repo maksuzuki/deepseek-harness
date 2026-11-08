@@ -248,14 +248,14 @@ describe('ModelsSettingsStore', () => {
     })
   })
 
-  it('offers configured providers that serve the model', () => {
-    const row = (provider: string, configured: boolean): ProviderRow => ({
+  it('offers registered routes the deployment configured and serves the model', () => {
+    const row = (provider: string, configured: boolean, active = configured): ProviderRow => ({
       entry: {
         provider,
         displayName: provider,
         settingsNs: 'llm-pi-ai',
         settingsPath: ['providers', provider],
-        active: configured,
+        active,
       },
       configured,
       removable: false,
@@ -263,7 +263,14 @@ describe('ModelsSettingsStore', () => {
       credential: undefined,
     })
     expect(routingProviderOptions(
-      [row('opencode-go', true), row('declared-only', false), row('no-catalog', true)],
+      [
+        row('opencode-go', true),
+        row('declared-only', false),
+        // A profile the settings layer still lists while no adapter serves it
+        // cannot execute a window, so it is not a destination.
+        row('stale-route', true, false),
+        row('no-catalog', true),
+      ],
       [{
         id: 'opencode-go',
         name: 'OpenCode Go',

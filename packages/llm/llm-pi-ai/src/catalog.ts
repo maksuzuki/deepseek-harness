@@ -880,9 +880,11 @@ export interface RouteCatalog {
 
 /**
  * Validate one model's peak destinations. A window is only useful for a model
- * whose price policy ships with the catalog, and candidates resolve from the
- * installed pi-ai catalog, so a window naming a bundled or hand-declared route
- * is refused rather than left looking applied.
+ * whose price policy ships with the catalog, so an entry naming one this build
+ * does not describe is refused rather than left looking applied. A destination
+ * the installed catalog describes is checked against the model it must serve;
+ * any other destination executes on a route the deployment registers, which
+ * owns both the model it serves and the credential it authenticates with.
  * @param provider - route key, for diagnostics.
  * @param modelId - the model the window serves.
  * @param candidates - configured destinations, in priority order.
@@ -904,8 +906,13 @@ function assertPeakCandidates(
       invalid(provider, `model "${modelId}" peak has an empty provider`)
     }
     if (catalogProvider(candidate.provider) === undefined) {
-      invalid(provider, `model "${modelId}" peak provider "${candidate.provider}" is not an installed pi-ai`
-        + ' catalog provider; peak candidates resolve from the installed catalog')
+      // The destination route resolves its own credential, so a reference here
+      // would be recorded and never read.
+      if (candidate.apiKeyEnv !== undefined) {
+        invalid(provider, `model "${modelId}" peak provider "${candidate.provider}" executes on its own route,`
+          + ' which resolves that route\'s credential; remove apiKeyEnv from the destination')
+      }
+      continue
     }
     // A candidate that names no model serves the routed model's own id; one
     // that names another model must find it on the candidate, or the request

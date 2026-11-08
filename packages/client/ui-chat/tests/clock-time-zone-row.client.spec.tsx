@@ -6,7 +6,7 @@ import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controlle
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import { allowAllAccess, bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { allowAllAccess, bindSnapshotSelector, contextMenuHook, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ClockTimeZone } from '../src/chat-settings.ts'
 import { ClockTimeZoneRow, type ClockTimeZoneRowProps } from '../src/client/settings/ClockTimeZoneRow.tsx'
 import { en, zh } from '../src/client/locale.ts'
@@ -43,6 +43,7 @@ function mount(zone: ClockTimeZone = 'local', dictionary: typeof en | typeof zh 
     useWorkspaces: emptyWorkspaces(),
     useSessionRetainInfo: () => undefined,
     useResource,
+    useContextMenu: contextMenuHook(),
     useClockTimeZone: bindSnapshotSelector(source),
     setClockTimeZone,
     t: makeTranslate(dictionary),

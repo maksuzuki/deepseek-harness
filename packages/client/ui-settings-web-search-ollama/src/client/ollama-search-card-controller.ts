@@ -1,26 +1,22 @@
 /**
  * The Ollama Cloud web page's staged forms: the `web-ollama-api` section that
- * carries the two endpoints and the default result count, the `web` section
- * whose provider selection the switch stages, and the key — which is written
- * through the credentials domain, never into the settings section, so the
- * literal never rides a response.
+ * carries the default result count and the `web` section whose provider
+ * selection the switch stages.
  *
  * The switch selects the Ollama Cloud search and fetch providers together, or
  * restores the deployment's own selection. A selection equal to the composed
- * value clears the override instead of storing a copy of it. The key is the one
- * control that does not live in a section; it is still staged with the rest of
- * the form, so one save covers everything the page shows.
+ * value clears the override instead of storing a copy of it. The endpoints and
+ * the API key are not settings: both endpoints are Ollama Cloud's public ones,
+ * and the key is the one the Ollama Cloud model route already stores.
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // Type-only: pulls the ctx.remote merge into this program.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
-import {
-  SettingsFormModel, settingsNumberField, settingsTextField,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { SettingsFormModel, settingsNumberField, settingsTextField } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
-  SettingsFieldState, SettingsFormActions, SettingsFormScope, SettingsFormScopeSnapshot, SettingsFormShell,
+  SettingsFieldState, SettingsFormActions, SettingsFormScope, SettingsFormShell,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 
 /** Settings namespace of the Ollama Cloud web provider (its Loader row id). */
@@ -31,24 +27,12 @@ export const WEB_NS = 'web'
 
 /** Provider ids the switch writes into the web service's selection. */
 const PROVIDERS = {
-  searchProvider: { on: 'ollama-cloud', off: 'deepseek-official' },
+  searchProvider: { on: 'ollama-cloud-search', off: 'deepseek-official' },
   fetchProvider: { on: 'ollama-cloud-fetch', off: 'http' },
 } as const
 
-/**
- * Endpoints an empty field resolves to, spelled here rather than imported: a
- * client package must not depend on a Host package. The hint beside each field
- * says the provider appends the operation path to a base, so both the base and
- * this full URL are valid values.
- */
-const DEFAULT_SEARCH_URL = 'https://ollama.com/api/web_search'
-const DEFAULT_FETCH_URL = 'https://ollama.com/api/web_fetch'
-
-/** Credential reference the provider resolves when its section names none. */
-const DEFAULT_API_KEY_REF = 'OLLAMA_CLOUD_API_KEY'
-
-/** Form field the credential control stages under. */
-const API_KEY_FIELD = 'apiKey'
+/** Credential reference the provider resolves; the Ollama Cloud model route stores its key here. */
+const API_KEY_REF = 'OLLAMA_CLOUD_API_KEY'
 
 /** The web service's provider selection. */
 export interface WebProviderSelection {
@@ -60,24 +44,14 @@ export interface WebProviderSelection {
 
 /** The Ollama Cloud fields this page edits — a subset of the served schema by design. */
 export interface OllamaSearchSettings {
-  /** Credential reference naming the environment key. */
-  apiKeyEnv?: string
-  /** Search endpoint base or the full URL; blank inherits the provider default. */
-  searchBaseURL?: string
-  /** Fetch endpoint base or the full URL; blank inherits the provider default. */
-  fetchBaseURL?: string
   /** Default result count when a search request carries no bound. */
   maxResults?: number
 }
 
-/** What the credentials domain last reported, and for which reference. */
+/** What the credentials domain last reported for the shared key. */
 interface CredentialState {
-  /** Reference this answer describes; a stale response for another one is dropped. */
-  ref: string
   /** Whether any layer supplies a value for it. */
   configured: boolean
-  /** Whether `credentials/set` can affect it; false disables the control. */
-  writable: boolean
 }
 
 /** What the Ollama Cloud web page renders. */
@@ -86,22 +60,10 @@ export interface OllamaSearchCardState extends SettingsFormShell {
   switchAvailable: boolean
   /** Staged switch position: true selects the Ollama Cloud search and fetch providers. */
   useOllama: boolean
-  /** Search endpoint. */
-  searchBaseURL: SettingsFieldState
-  /** Fetch endpoint. */
-  fetchBaseURL: SettingsFieldState
-  /** Endpoint the search field resolves to when it is empty, shown faintly. */
-  searchPlaceholder: string
-  /** Endpoint the fetch field resolves to when it is empty, shown faintly. */
-  fetchPlaceholder: string
   /** Default result count. */
   maxResults: SettingsFieldState
-  /** The staged credential, which starts blank on every load. */
-  apiKey: SettingsFieldState
-  /** Whether the Host reports a credential configured for the referenced key. */
+  /** Whether the Host reports a credential configured at {@link API_KEY_REF}. */
   apiKeyConfigured: boolean
-  /** Whether the credentials domain accepts a write for it; false disables the control. */
-  apiKeyWritable: boolean
 }
 
 /** The registration-side face the Ollama Cloud web page's slot entry injects. */
@@ -128,7 +90,7 @@ export class OllamaSearchCardController {
   private readonly selection: SettingsFormModel<WebProviderSelection>
   private readonly store: SnapshotStore<OllamaSearchCardState>
   private readonly unsubscribe: (() => void)[]
-  private credential: CredentialState = { ref: '', configured: false, writable: true }
+  private credential: CredentialState = { configured: false }
 
   /**
    * @param scopes - the bound settings scopes for the page's namespaces.
@@ -139,11 +101,7 @@ export class OllamaSearchCardController {
     private readonly scopes: OllamaSearchCardScopes,
     private readonly ctx: ClientContext,
   ) {
-    this.provider = new SettingsFormModel(scopes.provider, [
-      settingsTextField('searchBaseURL'),
-      settingsTextField('fetchBaseURL'),
-      settingsNumberField('maxResults'),
-    ], [{ field: API_KEY_FIELD, write: text => this.writeKey(text) }])
+    this.provider = new SettingsFormModel(scopes.provider, [settingsNumberField('maxResults')])
     this.selection = new SettingsFormModel(scopes.web, [
       settingsTextField('searchProvider'), settingsTextField('fetchProvider'),
     ])
@@ -152,9 +110,6 @@ export class OllamaSearchCardController {
       // The forms publish drafts and section reads; the credential answer
       // publishes nothing there, so every projection is written from here.
       ...[this.provider, this.selection].map(form => form.bind(() => form.shell()).subscribe(() => { this.store.set(this.projection()) })),
-      // A staged switch can change which section names the key, without any
-      // scope publishing; a scope change can rename the reference itself.
-      ...[scopes.web, scopes.provider].map(scope => scope.subscribe(() => { void this.readCredential() })),
     ]
     void this.readCredential()
   }
@@ -184,64 +139,41 @@ export class OllamaSearchCardController {
       ...shell,
       switchAvailable: this.switchAvailable(),
       useOllama: this.ollamaSelected(),
-      searchBaseURL: this.provider.field('searchBaseURL'),
-      fetchBaseURL: this.provider.field('fetchBaseURL'),
-      searchPlaceholder: DEFAULT_SEARCH_URL,
-      fetchPlaceholder: DEFAULT_FETCH_URL,
       maxResults: this.provider.field('maxResults'),
-      apiKey: this.provider.field(API_KEY_FIELD),
       apiKeyConfigured: this.credential.configured,
-      apiKeyWritable: this.credential.writable,
     }
   }
 
   /**
-   * Ask the credentials domain about the reference the section currently names.
+   * Ask the credentials domain whether the shared Ollama Cloud key resolves.
    *
-   * The answer is stored with the reference it describes: `apiKeyEnv` can change
-   * between the request and its response, and two reads can settle out of order,
-   * so a response is published only while it still answers for the reference in
-   * force.
+   * Two reads can settle out of order; only an answer for the reference this
+   * build addresses is published.
    */
   private async readCredential(): Promise<void> {
-    const ref = this.activeRef()
-    if (ref !== this.credential.ref) {
-      // A new reference knows nothing yet; keeping the old answer would claim
-      // the key is configured under a name nobody has checked.
-      this.credential = { ref, configured: false, writable: true }
-      this.store.set(this.projection())
-    }
-    const response = await this.ctx.remote.credentials.describe([ref])
-    if (!response.ok || ref !== this.activeRef()) return
-    const view = response.value[ref]
-    const next: CredentialState = {
-      ref,
-      configured: view?.configured ?? false,
-      // An unknown reference is treated as writable: the control stays usable
-      // and the Host is what refuses, rather than the page guessing a refusal.
-      writable: view?.writable ?? true,
-    }
-    if (next.configured === this.credential.configured && next.writable === this.credential.writable) return
-    this.credential = next
+    const response = await this.ctx.remote.credentials.describe([API_KEY_REF])
+    if (!response.ok) return
+    const configured = response.value[API_KEY_REF]?.configured ?? false
+    if (configured === this.credential.configured) return
+    this.credential = { configured }
     this.store.set(this.projection())
   }
 
   /**
-   * Re-read after the Host reports a change to the reference this page watches.
+   * Re-read after the Host reports a change to the shared key.
    *
-   * A key can be written from somewhere else — the Models page addresses the
-   * same environment — and the settings section does not change when it is, so
-   * without this the badge keeps reporting a state the Host already replaced.
+   * The key belongs to the Ollama Cloud model route, so it is stored on the
+   * Models page; this page learns about that write only from this event.
    * @param ref - the reference the Host reports as changed.
    */
   refreshCredential(ref: string): void {
-    if (ref !== this.activeRef()) return
+    if (ref !== API_KEY_REF) return
     void this.readCredential()
   }
 
   /**
-   * Build the face the page's slot registration injects. Endpoint, result count,
-   * and the key edit their own section; the switch stages the selection.
+   * Build the face the page's slot registration injects. The result count edits
+   * its own section; the switch stages the selection.
    * @returns the page's snapshot and its form actions.
    */
   inject(): OllamaSearchCardFace {
@@ -293,8 +225,8 @@ export class OllamaSearchCardController {
 
   /**
    * Save the provider section before the selection, so a switch takes effect
-   * only after the endpoints it uses have landed. A refused section stops the
-   * selection from saving and keeps every remaining draft for correction.
+   * only after the result count it applies has landed. A refused section stops
+   * the selection from saving and keeps every remaining draft for correction.
    * @returns settlement after every attempted write.
    */
   private async save(): Promise<void> {
@@ -306,32 +238,4 @@ export class OllamaSearchCardController {
     }
     if (this.selection.shell().dirty) await this.selection.save()
   }
-
-  /**
-   * Write the staged key, then re-read whether the Host now holds one.
-   * @param value - the staged credential literal.
-   * @returns whether the Host reports a configured credential afterwards.
-   */
-  private async writeKey(value: string): Promise<boolean> {
-    // Refusals surface through the re-read below: the Host is the only
-    // authority on whether the key now exists.
-    await this.ctx.remote.credentials.set(this.activeRef(), value)
-    await this.readCredential()
-    return this.credential.configured
-  }
-
-  /** @returns the credential reference the provider section names, or the provider's default. */
-  private activeRef(): string {
-    return refOf(this.scopes.provider.getSnapshot())
-  }
-}
-
-/**
- * The credential reference the section names, or the provider's default.
- * @param snapshot - the section's current scope snapshot.
- * @returns the reference to address.
- */
-function refOf(snapshot: SettingsFormScopeSnapshot<OllamaSearchSettings>): string {
-  const declared = snapshot.value?.apiKeyEnv
-  return declared !== undefined && declared.length > 0 ? declared : DEFAULT_API_KEY_REF
 }

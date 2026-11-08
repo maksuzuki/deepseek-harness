@@ -12,6 +12,8 @@
 - status: Completed
 - button "Completed in {{duration}}" [expanded]
 - button "Searched the web" [expanded]
+- button "Context injection runtime-context"
+- button "Context injection time-context"
 - button "Search DeepSeek Harness snapshot search, DeepSeek Harness multi-query search"
 - paragraph: SEARCH_DONE
 - text: {{clock}}
@@ -22,6 +24,7 @@
 - textbox "Message or run a task, / commands, @ files or sessions"
 - button "Add files or run commands"
 - 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Push guard ON" [pressed]
 - button "Select model, current DeepSeek · DeepSeek-V4-Flash": DeepSeek · DeepSeek-V4-Flash
 - button "Send message" [disabled]
 - button "1 turns 2 steps · {{throughput}} tok/s": 1 turns 2 steps{{throughput}} tok/s

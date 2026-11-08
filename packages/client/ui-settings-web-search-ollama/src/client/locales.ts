@@ -5,27 +5,18 @@ import type { SettingsFormLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 /** Locale keys the page renders. */
 export type OllamaSearchSettingsLocaleKey =
   | 'title' | 'description'
-  | 'useOllama' | 'useOllamaHint'
-  | 'apiKey' | 'apiKeyHint' | 'apiKeySet' | 'apiKeyUnset'
-  | 'searchBaseUrl' | 'searchBaseUrlHint' | 'fetchBaseUrl' | 'fetchBaseUrlHint'
+  | 'useOllama' | 'useOllamaHint' | 'apiKeyUnset'
   | 'maxResults' | 'maxResultsHint'
   | 'overridden' | 'reset' | 'readOnly' | 'unavailable'
   | 'save' | 'saving' | 'saveFailed' | 'invalidNumber'
 
 /** English copy. */
 export const en: Record<OllamaSearchSettingsLocaleKey, string> = {
-  title: 'Ollama Cloud search',
+  title: 'Web search and page fetch with Ollama Cloud',
   description: 'Set up the Ollama Cloud web search and fetch providers.',
   useOllama: 'Use Ollama Cloud for web search and fetch',
   useOllamaHint: 'On selects both Ollama Cloud operations; off restores the deployment\'s own selection.',
-  apiKey: 'API key',
-  apiKeyHint: 'Stored outside the settings file. Leave blank to keep the current key.',
-  apiKeySet: 'A key is configured.',
-  apiKeyUnset: 'No key is configured; this provider cannot search or fetch until one is set.',
-  searchBaseUrl: 'Search API URL',
-  searchBaseUrlHint: 'Include the API prefix, such as https://ollama.com. The provider appends /api/web_search. Leave blank to restore the default.',
-  fetchBaseUrl: 'Fetch API URL',
-  fetchBaseUrlHint: 'Include the API prefix, such as https://ollama.com. The provider appends /api/web_fetch. Leave blank to restore the default.',
+  apiKeyUnset: 'No Ollama Cloud API key is configured. These providers use the key of the Ollama Cloud model provider (OLLAMA_CLOUD_API_KEY); set it in the Models settings.',
   maxResults: 'Results per search',
   maxResultsHint: 'Results returned per search when the caller requests no smaller bound.',
   overridden: 'Overridden',
@@ -40,18 +31,11 @@ export const en: Record<OllamaSearchSettingsLocaleKey, string> = {
 
 /** Simplified Chinese copy. */
 export const zh: Record<OllamaSearchSettingsLocaleKey, string> = {
-  title: 'Ollama Cloud 搜索',
+  title: '使用 Ollama Cloud 的网页搜索与页面获取',
   description: '设置 Ollama Cloud 的网页搜索与抓取提供方。',
   useOllama: '网页搜索与抓取都使用 Ollama Cloud',
   useOllamaHint: '开启即选中 Ollama Cloud 的两项能力；关闭则恢复本部署自己的选择。',
-  apiKey: 'API Key',
-  apiKeyHint: '不写入设置文件。留空表示保持当前密钥。',
-  apiKeySet: '已配置密钥。',
-  apiKeyUnset: '未配置密钥；设置之前该提供方无法搜索或抓取。',
-  searchBaseUrl: '搜索 API 地址',
-  searchBaseUrlHint: '填写含 API 前缀的地址，例如 https://ollama.com；程序追加 /api/web_search，留空恢复默认。',
-  fetchBaseUrl: '抓取 API 地址',
-  fetchBaseUrlHint: '填写含 API 前缀的地址，例如 https://ollama.com；程序追加 /api/web_fetch，留空恢复默认。',
+  apiKeyUnset: '未配置 Ollama Cloud API Key。网页搜索与抓取使用 Ollama Cloud 模型提供方的密钥（OLLAMA_CLOUD_API_KEY），请在模型设置中配置。',
   maxResults: '每次搜索结果数',
   maxResultsHint: '调用方未要求更小的上限时，单次搜索返回的结果条数。',
   overridden: '已覆盖',
@@ -66,18 +50,11 @@ export const zh: Record<OllamaSearchSettingsLocaleKey, string> = {
 
 /** Japanese copy. */
 export const ja: Record<OllamaSearchSettingsLocaleKey, string> = {
-  title: 'Ollama Cloud 検索',
+  title: 'Ollama Cloud を利用した Web 検索とページ取得',
   description: 'Ollama Cloud の Web 検索とページ取得の提供元を設定します。',
   useOllama: 'Web 検索とページ取得に Ollama Cloud を使う',
   useOllamaHint: 'オンにすると Ollama Cloud の 2 つの機能をまとめて選び、オフにするとこのデプロイ独自の選択に戻します。',
-  apiKey: 'API キー',
-  apiKeyHint: '設定ファイルには書き込みません。空欄のままにすると現在のキーを保持します。',
-  apiKeySet: 'キーが設定されています。',
-  apiKeyUnset: 'キーが未設定です。設定するまでこの提供元は検索も取得もできません。',
-  searchBaseUrl: '検索 API URL',
-  searchBaseUrlHint: 'https://ollama.com のように API プレフィックスまで含めます。続きに /api/web_search が追加されます。空欄にすると既定値に戻ります。',
-  fetchBaseUrl: '取得 API URL',
-  fetchBaseUrlHint: 'https://ollama.com のように API プレフィックスまで含めます。続きに /api/web_fetch が追加されます。空欄にすると既定値に戻ります。',
+  apiKeyUnset: 'Ollama Cloud の API キーが設定されていません。Web 検索と取得は Ollama Cloud モデルのキー（OLLAMA_CLOUD_API_KEY）を使うため、モデル設定で設定してください。',
   maxResults: '1 回の検索結果数',
   maxResultsHint: '呼び出し側がより小さい上限を指定しないときに、1 回の検索で返す件数です。',
   overridden: '上書き済み',
@@ -92,18 +69,11 @@ export const ja: Record<OllamaSearchSettingsLocaleKey, string> = {
 
 /** Spanish copy. */
 export const es: Record<OllamaSearchSettingsLocaleKey, string> = {
-  title: 'Búsqueda de Ollama Cloud',
+  title: 'Búsqueda y obtención de páginas web con Ollama Cloud',
   description: 'Configure los proveedores de búsqueda y descarga web de Ollama Cloud.',
   useOllama: 'Usar Ollama Cloud para la búsqueda y la descarga web',
   useOllamaHint: 'Activado selecciona ambas operaciones de Ollama Cloud; desactivado restaura la selección propia de la implementación.',
-  apiKey: 'Clave de API',
-  apiKeyHint: 'Se guarda fuera del archivo de configuración. Déjelo vacío para conservar la clave actual.',
-  apiKeySet: 'Hay una clave configurada.',
-  apiKeyUnset: 'No hay ninguna clave configurada; este proveedor no puede buscar ni descargar hasta que se configure una.',
-  searchBaseUrl: 'URL de la API de búsqueda',
-  searchBaseUrlHint: 'Incluya el prefijo de la API, como https://ollama.com. El proveedor añade /api/web_search. Déjelo vacío para restaurar el valor predeterminado.',
-  fetchBaseUrl: 'URL de la API de descarga',
-  fetchBaseUrlHint: 'Incluya el prefijo de la API, como https://ollama.com. El proveedor añade /api/web_fetch. Déjelo vacío para restaurar el valor predeterminado.',
+  apiKeyUnset: 'No hay ninguna clave de API de Ollama Cloud configurada. Estos proveedores usan la clave del proveedor de modelos Ollama Cloud (OLLAMA_CLOUD_API_KEY); configúrela en los ajustes de Modelos.',
   maxResults: 'Resultados por búsqueda',
   maxResultsHint: 'Resultados devueltos por búsqueda cuando quien llama no pide un límite menor.',
   overridden: 'Sobrescrito',
@@ -118,18 +88,11 @@ export const es: Record<OllamaSearchSettingsLocaleKey, string> = {
 
 /** French copy. */
 export const fr: Record<OllamaSearchSettingsLocaleKey, string> = {
-  title: 'Recherche Ollama Cloud',
+  title: 'Recherche et récupération de pages web avec Ollama Cloud',
   description: "Configurez les fournisseurs de recherche et de récupération web d'Ollama Cloud.",
   useOllama: 'Utiliser Ollama Cloud pour la recherche et la récupération web',
   useOllamaHint: "Activé, les deux opérations d'Ollama Cloud sont sélectionnées ; désactivé, la sélection propre au déploiement est rétablie.",
-  apiKey: "Clé d'API",
-  apiKeyHint: 'Stockée hors du fichier de configuration. Laissez vide pour conserver la clé actuelle.',
-  apiKeySet: 'Une clé est configurée.',
-  apiKeyUnset: "Aucune clé n'est configurée ; ce fournisseur ne peut ni rechercher ni récupérer avant qu'une clé soit définie.",
-  searchBaseUrl: "URL de l'API de recherche",
-  searchBaseUrlHint: "Incluez le préfixe de l'API, par exemple https://ollama.com. Le fournisseur ajoute /api/web_search. Laissez vide pour rétablir la valeur par défaut.",
-  fetchBaseUrl: "URL de l'API de récupération",
-  fetchBaseUrlHint: "Incluez le préfixe de l'API, par exemple https://ollama.com. Le fournisseur ajoute /api/web_fetch. Laissez vide pour rétablir la valeur par défaut.",
+  apiKeyUnset: 'Aucune clé d\'API Ollama Cloud n\'est configurée. Ces fournisseurs utilisent la clé du fournisseur de modèles Ollama Cloud (OLLAMA_CLOUD_API_KEY) ; configurez-la dans les réglages des modèles.',
   maxResults: 'Résultats par recherche',
   maxResultsHint: "Résultats renvoyés par recherche lorsque l'appelant ne demande pas de limite plus petite.",
   overridden: 'Remplacé',
@@ -144,18 +107,11 @@ export const fr: Record<OllamaSearchSettingsLocaleKey, string> = {
 
 /** German copy. */
 export const de: Record<OllamaSearchSettingsLocaleKey, string> = {
-  title: 'Ollama Cloud Suche',
+  title: 'Websuche und Seitenabruf mit Ollama Cloud',
   description: 'Richten Sie die Web-Suche und den Web-Abruf von Ollama Cloud ein.',
   useOllama: 'Ollama Cloud für Websuche und Web-Abruf verwenden',
   useOllamaHint: 'Eingeschaltet wählt beide Ollama-Cloud-Funktionen; ausgeschaltet stellt die eigene Auswahl der Installation wieder her.',
-  apiKey: 'API-Schlüssel',
-  apiKeyHint: 'Wird außerhalb der Einstellungsdatei gespeichert. Leer lassen, um den aktuellen Schlüssel zu behalten.',
-  apiKeySet: 'Ein Schlüssel ist eingerichtet.',
-  apiKeyUnset: 'Es ist kein Schlüssel eingerichtet; dieser Anbieter kann erst nach dem Setzen eines Schlüssels suchen und abrufen.',
-  searchBaseUrl: 'Such-API-URL',
-  searchBaseUrlHint: 'Geben Sie das API-Präfix an, etwa https://ollama.com. Der Anbieter hängt /api/web_search an. Leer lassen, um den Standard wiederherzustellen.',
-  fetchBaseUrl: 'Abruf-API-URL',
-  fetchBaseUrlHint: 'Geben Sie das API-Präfix an, etwa https://ollama.com. Der Anbieter hängt /api/web_fetch an. Leer lassen, um den Standard wiederherzustellen.',
+  apiKeyUnset: 'Es ist kein API-Schlüssel für Ollama Cloud eingerichtet. Diese Anbieter verwenden den Schlüssel des Ollama-Cloud-Modellanbieters (OLLAMA_CLOUD_API_KEY); richten Sie ihn in den Modelleinstellungen ein.',
   maxResults: 'Ergebnisse pro Suche',
   maxResultsHint: 'Ergebnisse pro Suche, wenn der Aufrufer keine kleinere Grenze anfordert.',
   overridden: 'Überschrieben',
@@ -170,18 +126,11 @@ export const de: Record<OllamaSearchSettingsLocaleKey, string> = {
 
 /** Russian copy. */
 export const ru: Record<OllamaSearchSettingsLocaleKey, string> = {
-  title: 'Поиск Ollama Cloud',
+  title: 'Веб-поиск и загрузка страниц через Ollama Cloud',
   description: 'Настройте провайдеры веб-поиска и загрузки страниц Ollama Cloud.',
   useOllama: 'Использовать Ollama Cloud для веб-поиска и загрузки страниц',
   useOllamaHint: 'Включено — выбраны обе возможности Ollama Cloud; выключено — восстанавливается выбор самого развёртывания.',
-  apiKey: 'Ключ API',
-  apiKeyHint: 'Хранится вне файла настроек. Оставьте пустым, чтобы сохранить текущий ключ.',
-  apiKeySet: 'Ключ настроен.',
-  apiKeyUnset: 'Ключ не настроен; без него этот провайдер не может ни искать, ни загружать страницы.',
-  searchBaseUrl: 'URL API поиска',
-  searchBaseUrlHint: 'Укажите префикс API, например https://ollama.com. Провайдер допишет /api/web_search. Оставьте пустым, чтобы восстановить значение по умолчанию.',
-  fetchBaseUrl: 'URL API загрузки',
-  fetchBaseUrlHint: 'Укажите префикс API, например https://ollama.com. Провайдер допишет /api/web_fetch. Оставьте пустым, чтобы восстановить значение по умолчанию.',
+  apiKeyUnset: 'Ключ API Ollama Cloud не настроен. Эти провайдеры используют ключ поставщика моделей Ollama Cloud (OLLAMA_CLOUD_API_KEY); задайте его в настройках моделей.',
   maxResults: 'Результатов на поиск',
   maxResultsHint: 'Сколько результатов возвращает один поиск, если вызывающая сторона не задала меньший предел.',
   overridden: 'Переопределено',
@@ -196,18 +145,11 @@ export const ru: Record<OllamaSearchSettingsLocaleKey, string> = {
 
 /** Portuguese copy. */
 export const pt: Record<OllamaSearchSettingsLocaleKey, string> = {
-  title: 'Pesquisa do Ollama Cloud',
+  title: 'Pesquisa e obtenção de páginas na web com Ollama Cloud',
   description: 'Configure os provedores de pesquisa e de busca de páginas do Ollama Cloud.',
   useOllama: 'Usar o Ollama Cloud para pesquisa e busca de páginas',
   useOllamaHint: 'Ligado seleciona as duas operações do Ollama Cloud; desligado restaura a seleção própria da implantação.',
-  apiKey: 'Chave de API',
-  apiKeyHint: 'Guardada fora do arquivo de configurações. Deixe em branco para manter a chave atual.',
-  apiKeySet: 'Há uma chave configurada.',
-  apiKeyUnset: 'Nenhuma chave está configurada; este provedor não pesquisa nem busca páginas até que uma seja definida.',
-  searchBaseUrl: 'URL da API de pesquisa',
-  searchBaseUrlHint: 'Inclua o prefixo da API, como https://ollama.com. O provedor acrescenta /api/web_search. Deixe em branco para restaurar o padrão.',
-  fetchBaseUrl: 'URL da API de busca de páginas',
-  fetchBaseUrlHint: 'Inclua o prefixo da API, como https://ollama.com. O provedor acrescenta /api/web_fetch. Deixe em branco para restaurar o padrão.',
+  apiKeyUnset: 'Nenhuma chave de API do Ollama Cloud está configurada. Esses provedores usam a chave do provedor de modelos Ollama Cloud (OLLAMA_CLOUD_API_KEY); configure-a nas configurações de Modelos.',
   maxResults: 'Resultados por pesquisa',
   maxResultsHint: 'Resultados devolvidos por pesquisa quando quem chama não pede um limite menor.',
   overridden: 'Substituído',

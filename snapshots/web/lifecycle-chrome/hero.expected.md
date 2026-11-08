@@ -4,6 +4,7 @@
 - navigation "Global panels":
   - button "Plugins"
   - button "Automation tasks"
+  - button "Unpin Automation tasks from sidebar"
   - button "More"
 - text: Workspaces
 - button "Search sessions"
@@ -23,5 +24,6 @@
   - paragraph
 - button "Add files or run commands"
 - 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Push guard ON" [pressed]
 - button "Select model, current DeepSeek · DeepSeek-V4-Flash": DeepSeek · DeepSeek-V4-Flash
 - button "Send message" [disabled]

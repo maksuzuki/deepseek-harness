@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Configurações de pesquisa do Ollama Cloud",
-    "description": "Configure a seleção do provedor web do Ollama Cloud, a chave, seus dois endpoints e o número de resultados."
+    "title": "Pesquisa e obtenção de páginas na web com Ollama Cloud",
+    "description": "Decida se esta implantação pesquisa e obtém páginas na web pelo Ollama Cloud, e o número de resultados da pesquisa."
   }
 }

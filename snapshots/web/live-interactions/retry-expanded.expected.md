@@ -11,6 +11,9 @@
 - button "Copy"
 - status: Completed
 - button "Completed in {{duration}}" [expanded]
+- button "Injected context" [expanded]
+- button "Context injection runtime-context"
+- button "Context injection time-context"
 - group:
   - status: Retried model request (1/5) · {{duration}}
 - button "Analysis completed" [expanded]
@@ -24,6 +27,7 @@
 - textbox "Message or run a task, / commands, @ files or sessions"
 - button "Add files or run commands"
 - 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Push guard ON" [pressed]
 - button "Select model, current DeepSeek · DeepSeek-V4-Flash": DeepSeek · DeepSeek-V4-Flash
 - button "Send message" [disabled]
 - button "1 turns 1 steps · {{throughput}} tok/s": 1 turns 1 steps{{throughput}} tok/s

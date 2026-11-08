@@ -11,6 +11,7 @@
 - status: Completed
 - button "Completed in {{duration}}" [expanded]
 - button "Asked questions" [expanded]
+- button "Context injection runtime-context"
 - button "Think The user wants me to use the ask_user_question tool with specific parameters. Let me do exactly that."
 - button "Ask question" [expanded]
 - text: Ask question 1/1 answered
@@ -27,6 +28,7 @@
 - textbox "Message or run a task, / commands, @ files or sessions"
 - button "Add files or run commands"
 - 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Push guard ON" [pressed]
 - button "Select model, current DeepSeek · DeepSeek-V4-Flash": DeepSeek · DeepSeek-V4-Flash
 - button "Send message" [disabled]
 - button "1 turns 1 steps · {{throughput}} tok/s": 1 turns 1 steps{{throughput}} tok/s

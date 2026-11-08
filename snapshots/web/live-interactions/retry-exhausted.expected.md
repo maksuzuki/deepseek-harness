@@ -11,6 +11,7 @@
 - button "Copy"
 - status: Failed
 - button "Failed" [disabled] [expanded]
+- button "Injected context"
 - group:
   - status: Retried model request (2/2) · {{duration}}
 - status:
@@ -19,6 +20,7 @@
 - textbox "Message or run a task, / commands, @ files or sessions"
 - button "Add files or run commands"
 - 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Push guard ON" [pressed]
 - button "Select model, current DeepSeek · DeepSeek-V4-Flash": DeepSeek · DeepSeek-V4-Flash
-- button "Send message" [disabled]
+- button "Continue generating"
 - text: 1 turns 1 steps

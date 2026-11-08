@@ -31,7 +31,7 @@ Mount this plugin beside [`@deepseek-ai/dsh-git-push-guard`](../../guard/git-pus
 <a id="what-to-expect"></a>
 ## What to expect
 
-The chip shows “Push guard ON” or “Push guard OFF” beside a small lock glyph, and “Loading…” until the first read settles. It stays disabled while the read or a write is in flight. Clicking it posts `{ enabled, sessionId }` and changes only that Session; the default for new Sessions is unchanged. Its tooltip names the current setting and says that the new-Session default is unchanged. The chip re-reads on mount, on window focus, and on `visibilitychange`, so a change written by another client appears when this client next gains focus or its tab becomes visible. A read or write failure tints the chip as an error and moves the localized failure text into its tooltip, leaving the last known label in place.
+The chip shows “Push guard ON” or “Push guard OFF” beside a small lock glyph, and “Loading…” until the first read settles. It stays disabled while the read or a write is in flight. Clicking it posts `{ enabled, sessionId }` and changes only that Session; the default for new Sessions is unchanged. Its tooltip names the current setting and says that the new-Session default is unchanged. The chip re-reads on mount and when its tab becomes visible, so a change written by another client appears when this client next returns to the tab. A read or write failure tints the chip as an error and moves the localized failure text into its tooltip, leaving the last known label in place.
 
 The Shiguredo built-in plugin settings card shows the default for new Sessions with an On/Off control. It reads the bare route when its page opens and posts `{ enabled }` when the user chooses a value. A read or write failure shows the localized failure line in place. The card carries a one-line summary in the settings list; its hint says that changes affect new Sessions only and that an existing Session switches from the composer chip.
 
@@ -79,7 +79,7 @@ These limits define the shipped surfaces and what they deliberately do not do.
 - **The state route is the only interface** — both surfaces fail to load unless the Host package provides `/push-guard/state`; a missing route leaves them in their inline failure states rather than hiding them.
 - **The settings card is not a profile switch** — it changes the default for Sessions created later; an existing Session keeps its own value, and a profile composition change can still override the default through `defaultEnabled`.
 - **No Session message by design** — switching a Session's setting or the default persists only the route state; the transcript records neither the change nor its author, so replay cannot explain a later guard decision on its own.
-- **Another client's change is eventually visible** — the chip re-reads on mount, focus, and visibility change, not on a live push, so a change made elsewhere can stay unseen until the next focus or mount.
+- **Another client's change is eventually visible** — the chip re-reads on mount and visibility change, not on a live push, so a change made elsewhere can stay unseen until the tab is revisited or the chip remounts.
 - **The chip does not create Sessions or Host agents** — it requires the standard `sessionId` of the composer it renders in, and fails closed before that seat supplies one.
 
 <a id="dev-note"></a>

@@ -23,6 +23,7 @@
  */
 
 import type { Api, Model, ModelCost, ModelThinkingLevel, ThinkingLevelMap } from '@earendil-works/pi-ai'
+import type { LlmModelBadge } from '@deepseek-ai/dsh-llm'
 import type { PiAiPeakDay } from './peak.ts'
 
 /**
@@ -113,6 +114,12 @@ export interface BundledModel {
    * configuration names only the destination it routes to.
    */
   readonly peakWindow?: BundledPeakWindow
+  /**
+   * Release marking the composer shows beside this model's name. Absent when
+   * the name states everything the route knows; it is display metadata, so no
+   * request and no Session event carries it.
+   */
+  readonly badge?: LlmModelBadge
 }
 
 /** One bundled provider route and the models it serves. */
@@ -161,6 +168,13 @@ const OLLAMA_PEAK: BundledPeakWindow = {
   days: ['mon', 'tue', 'wed', 'thu', 'fri'],
 }
 
+/**
+ * The release marking for DeepSeek's 1017 Flash build. The catalog name is
+ * DeepSeek's own, so the badge is the only thing that separates this build
+ * from a later one served under the same name.
+ */
+const DEEPSEEK_1017_BADGE: LlmModelBadge = { text: '1017', tone: 'info' }
+
 const OLLAMA_CLOUD: BundledProvider = {
   id: 'ollama-cloud',
   name: 'Ollama Cloud',
@@ -168,7 +182,7 @@ const OLLAMA_CLOUD: BundledProvider = {
   api: 'openai-responses',
   models: [
     { id: 'beam', name: 'Beam', contextWindow: 1_048_576, maxTokens: 131_072, input: ['text'], reasoning: true, supportsOff: false },
-    { id: 'deepseek-v4.1-flash:1017', name: 'DeepSeek-V4.1-Flash', contextWindow: 1_048_576, maxTokens: 393_216, input: ['text', 'image'], reasoning: true, supportsOff: true, peakWindow: OLLAMA_PEAK },
+    { id: 'deepseek-v4.1-flash:1017', name: 'DeepSeek-V4.1-Flash', contextWindow: 1_048_576, maxTokens: 393_216, input: ['text', 'image'], reasoning: true, supportsOff: true, peakWindow: OLLAMA_PEAK, badge: DEEPSEEK_1017_BADGE },
     { id: 'deepseek-v4-pro:0813', name: 'DeepSeek V4 Pro', contextWindow: 1_048_576, maxTokens: 65_536, input: ['text'], reasoning: true, supportsOff: true, peakWindow: OLLAMA_PEAK },
     { id: 'gemma4:31b', name: 'Gemma 4 31B', contextWindow: 262_144, maxTokens: 262_144, input: ['text', 'image'], reasoning: true, supportsOff: true },
     { id: 'glm-5.2', name: 'GLM 5.2', contextWindow: 1_048_576, maxTokens: 131_072, input: ['text'], reasoning: true, supportsOff: true },
@@ -179,6 +193,9 @@ const OLLAMA_CLOUD: BundledProvider = {
     { id: 'kimi-k2.6', name: 'Kimi K2.6', contextWindow: 262_144, maxTokens: 262_144, input: ['text', 'image'], reasoning: true, supportsOff: true },
     { id: 'kimi-k2.7-code', name: 'Kimi K2.7 Code', contextWindow: 262_144, maxTokens: 262_144, input: ['text', 'image'], reasoning: true, supportsOff: true },
     { id: 'kimi-k3', name: 'Kimi K3', contextWindow: 1_048_576, maxTokens: 1_048_576, input: ['text', 'image'], reasoning: true, supportsOff: true },
+    { id: 'kimi-k3.1-pro', name: 'Kimi K3.1 Pro', contextWindow: 1_048_576, maxTokens: 1_048_576, input: ['text', 'image'], reasoning: true, supportsOff: true },
+    { id: 'mimo-v2.6-flash', name: 'MiMo V2.6 Flash', contextWindow: 1_048_576, maxTokens: 131_072, input: ['text', 'image'], reasoning: true, supportsOff: true },
+    { id: 'mimo-v2.6-pro', name: 'MiMo V2.6 Pro', contextWindow: 1_048_576, maxTokens: 131_072, input: ['text', 'image'], reasoning: true, supportsOff: true },
     { id: 'minimax-m2.7', name: 'MiniMax M2.7', contextWindow: 196_608, maxTokens: 131_072, input: ['text'], reasoning: true, supportsOff: false },
     { id: 'minimax-m3', name: 'MiniMax M3', contextWindow: 512_000, maxTokens: 131_072, input: ['text', 'image'], reasoning: true, supportsOff: false },
     { id: 'minimax-m3.1-flash', name: 'MiniMax M3.1 Flash', contextWindow: 1_000_000, maxTokens: 524_288, input: ['text', 'image'], reasoning: true, supportsOff: false },
@@ -205,6 +222,16 @@ const BY_ID: ReadonlyMap<string, BundledProvider> = new Map(BUNDLED_PROVIDERS.ma
  */
 export function bundledPeakWindow(provider: string, model: string): BundledPeakWindow | undefined {
   return BY_ID.get(provider)?.models.find(entry => entry.id === model)?.peakWindow
+}
+
+/**
+ * The selector badge one bundled model declares.
+ * @param provider - provider route key.
+ * @param model - model id on that route.
+ * @returns the badge, or `undefined` when this build ships none for that model.
+ */
+export function bundledBadge(provider: string, model: string): LlmModelBadge | undefined {
+  return BY_ID.get(provider)?.models.find(entry => entry.id === model)?.badge
 }
 
 /**

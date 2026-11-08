@@ -9,7 +9,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentOptions, CreateAgentOptions } from '@deepseek-ai/dsh-agent'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import type { Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
 // Type-only: make `ctx.get('sandboxPolicy')`, `ctx.get('approval')`, and
@@ -59,7 +59,7 @@ export function resolveChildDepth(parent: Agent, maxDepth: number | undefined): 
 
 /**
  * Resolve the parent values inherited by a child. The latest request header
- * owns provider, model, and reasoning effort after request-time selection;
+ * owns provider, model, reasoning effort, and boolean Thinking after request-time selection;
  * creation options remain the fallback before the first request and retain
  * the configured output-token limit.
  * @param parent - delegating parent Agent.
@@ -72,6 +72,7 @@ export function parentAgentOptionsForDelegation(parent: Agent): AgentOptions {
     provider: _createdProvider,
     model: _createdModel,
     reasoningEffort: _createdReasoningEffort,
+    thinking: _createdThinking,
     ...createdOptions
   } = parent.options
   return {
@@ -81,12 +82,13 @@ export function parentAgentOptionsForDelegation(parent: Agent): AgentOptions {
     ...requestConfig.reasoningEffort === undefined
       ? {}
       : { reasoningEffort: requestConfig.reasoningEffort },
+    ...requestConfig.thinking === undefined ? {} : { thinking: requestConfig.thinking },
   }
 }
 
 /**
  * Resolve the child's `AgentOptions`: the parent's provider/model,
- * reasoning-effort, and maxTokens values unless the request overrides them,
+ * reasoning-effort, boolean Thinking, and maxTokens values unless the request overrides them,
  * stamped with the child's own delegation depth. Changing the route without
  * naming an effort clears the parent's route-owned effort so the selected
  * model resolves its own default.
@@ -100,21 +102,41 @@ export function resolveChildAgentOptions(
   requested: AgentOptions | undefined,
   childDepth: number,
 ): AgentOptions {
-  const parentOptions = parentAgentOptionsForDelegation(parent)
+  return {
+    ...resolveChildLlmOptions(parentAgentOptionsForDelegation(parent), requested),
+    subagentDepth: childDepth,
+  }
+}
+
+/**
+ * Merge one parent's current LLM options with child overrides. A route named
+ * by the child uses that model's boolean Thinking default when omitted;
+ * changing the route also clears an inherited reasoning effort.
+ * @param parentOptions - parent values resolved from creation state or the latest request header.
+ * @param requested - configured or per-child overrides, if any.
+ * @returns detached LLM-facing Agent options for preflight and child creation.
+ */
+export function resolveChildLlmOptions(
+  parentOptions: AgentOptions,
+  requested: AgentOptions | undefined,
+): AgentOptions {
   const parentProvider = parentOptions.provider
   const parentModel = parentOptions.model
   const parentReasoningEffort = parentOptions.reasoningEffort
+  const parentThinking = parentOptions.thinking
   const parentMaxTokens = parentOptions.maxTokens
   const resolved: AgentOptions = {
     ...parentProvider !== undefined ? { provider: parentProvider } : {},
     ...parentModel !== undefined ? { model: parentModel } : {},
     ...parentReasoningEffort !== undefined ? { reasoningEffort: parentReasoningEffort } : {},
+    ...parentThinking !== undefined ? { thinking: parentThinking } : {},
     ...parentMaxTokens !== undefined ? { maxTokens: parentMaxTokens } : {},
     ...requested,
-    subagentDepth: childDepth,
   }
   const routeChanged = resolved.provider !== parentProvider || resolved.model !== parentModel
+  const routeSpecified = requested?.provider !== undefined || requested?.model !== undefined
   if (routeChanged && requested?.reasoningEffort === undefined) delete resolved.reasoningEffort
+  if ((routeChanged || routeSpecified) && requested?.thinking === undefined) delete resolved.thinking
   return resolved
 }
 
@@ -155,7 +177,7 @@ export function childSessionMeta(
 
 /** The scoped composition a child agent's creation window applies. */
 export interface ChildComposition {
-  /** Independently mounted preset; omission shares the parent's standing generation. */
+  /** Preset to mount; omission shares a supplied creator or uses host composition. */
   readonly agentPreset?: string | undefined
   /** Historical descriptor persona reapplied only during cold resume. */
   readonly persona?: string | undefined
@@ -176,16 +198,17 @@ export const SUBAGENT_DELEGATION_CONTEXT
 
 /**
  * Compose a child before publication and restore historical descriptor overrides.
- * Explicit selection mounts the named preset; omission synchronously joins the
- * parent's current generation. Registrations belong to the child's scope.
+ * Explicit selection mounts the named preset. Omission joins a supplied creator's
+ * current generation; a restored child without a saved preset uses host composition.
+ * Registrations belong to the child's scope.
  * @param childCtx - the child agent's scoped creation context.
- * @param parent - the delegating parent used when no preset is selected.
+ * @param parent - creator for fresh delegation; absent during target-only restoration.
  * @param composition - independent preset and any overrides read from a historical descriptor.
  * @returns A promise when mounting an independent preset; otherwise completes synchronously.
  */
 export function applyChildComposition(
   childCtx: Context,
-  parent: Agent,
+  parent: Agent | undefined,
   composition: ChildComposition,
 ): void | Promise<void> {
   if (composition.agentPreset !== undefined) {
@@ -197,7 +220,7 @@ export function applyChildComposition(
       applyChildOverrides(childCtx, composition)
     })
   }
-  childCtx.get('agentPresets')?.composeFrom(childCtx, parent.ctx)
+  if (parent !== undefined) childCtx.get('agentPresets')?.composeFrom(childCtx, parent.ctx)
   applyChildOverrides(childCtx, composition)
 }
 
@@ -276,16 +299,4 @@ export function appendDelegatedPolicyOverrides(
   if (overrides.permissionPreset !== undefined) {
     childSession.append('permission/preset', { preset: overrides.permissionPreset })
   }
-}
-
-/** Identity and lineage inputs shared by every in-process child creation. */
-export interface ChildCreateInputs {
-  /** The child's reserved session id. */
-  readonly sessionId: SessionId
-  /** The delegating parent agent. */
-  readonly parent: Agent
-  /** The resolved delegation depth. */
-  readonly childDepth: number
-  /** How many leading seed events came from the parent's log. */
-  readonly lineageSeedLength: number
 }

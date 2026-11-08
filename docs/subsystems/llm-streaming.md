@@ -525,6 +525,26 @@ interface LlmNativeAuth {
 }
 ```
 
+A catalog entry may carry a provider-authored `badge` that selectors show beside the model name. It is display data: `resolveModelInfo` omits it, and no model request carries it.
+
+```ts type-equiv
+/**
+ * Emphasis of a model badge: `neutral` states a plain fact, `info` highlights
+ * the model, `success` marks a benefit, and `warning` asks for attention.
+ */
+type LlmModelBadgeTone = 'neutral' | 'info' | 'success' | 'warning'
+```
+
+```ts type-equiv
+/** Short provider-authored label a selector shows beside one advertised model name. */
+interface LlmModelBadge {
+  /** One literal, or translations keyed by lowercase language id with a required English entry. */
+  text: LocalizedText
+  /** Emphasis of the label. */
+  tone: LlmModelBadgeTone
+}
+```
+
 ```ts type-equiv
 /** One local wall-clock window an adapter routes a model through another provider. */
 interface LlmRoutingWindow {
@@ -573,6 +593,11 @@ interface LlmModelInfo {
   inputModalities?: readonly ModelModality[]
   /** Windows in which the route's requests go to another provider; absent means none. */
   routing?: LlmModelRouting
+  /**
+   * Selector label advertised by catalog discovery; exact-route resolution
+   * omits it, and no model request or Session event carries it.
+   */
+  badge?: LlmModelBadge
 }
 ```
 
@@ -656,8 +681,21 @@ type RequestMessage = Message | RequestUserInput
 ```
 
 ```ts type-equiv
-/** A single model request, fully assembled. */
-interface GenerateOptions {
+/** Auxiliary request purposes declared by their producer packages. */
+interface LlmRequestPurposeMap {}
+```
+
+```ts type-equiv
+/** Declared auxiliary request purpose; ordinary conversation requests leave it absent. */
+type LlmRequestPurpose = Extract<keyof LlmRequestPurposeMap, string>
+```
+
+```ts type-equiv
+/**
+ * A single model request, fully assembled.
+ * @typeParam Purpose - declared purpose keys for callers; forwarding adapters may accept `string`.
+ */
+interface GenerateOptions<Purpose extends string = LlmRequestPurpose> {
   /** Registered provider route selecting the adapter instance. */
   provider: string
   model: string
@@ -700,7 +738,7 @@ interface GenerateOptions {
    * map the purpose to model-hidden transport metadata. Ordinary conversation
    * requests leave it unset.
    */
-  purpose?: 'compaction' | 'session-title'
+  purpose?: Purpose
 }
 ```
 
@@ -865,9 +903,28 @@ interface LlmCallConfigAdapterDefaults {
 
 The [wire reference](../deepseek-llm-api-wire-extensions.md) defines the exact request headers, extension transaction, field versions, and receiver obligations. The shipped composition registers [`dsh_session_log`](../../packages/session/session-log-deepseek/README.md) as a lossless incremental canonical-log suffix and [`dsh_plugin_packages`](../../packages/llm/plugin-package-inventory-deepseek/README.md) as the complete active Loader-backed package set. These fields remain outside model messages and are absent from the pi-ai adapter path.
 
+## Pi-ai request headers
+
+`PiAiRequestHeaderContext` contains the prepared call's provider, model, resolved model `baseURL`, and optional Session id and auxiliary purpose. It is immutable, contains no messages or authentication fields, and accompanies a request-owned `Headers` object in the synchronous `llm-pi-ai/request-headers` waterfall. The [adapter's request-header documentation](../../packages/llm/llm-pi-ai/README.md#request-headers) defines contribution ownership, attribution precedence, and failure behavior. This extension point is specific to pi-ai inference requests.
+
 ## Service and provider contracts
 
-`LlmAdapter` is the provider contract: subclass, implement `stream()`, and register one adapter instance with `ctx.llm.registerAdapter(providers, adapter)`. `GenerateOptions.provider` selects the registered adapter; `GenerateOptions.model` is passed to that adapter and need not be registered at lifecycle start. Duplicate provider routes fail atomically. Optional `providerRetryPolicy()` is captured per route with normal defaults, while `providerInfo()` and asynchronous `listModels()` feed `LlmRuntime.listProviders()` / `listModels()` with detached selector metadata. That catalog is advisory rather than a request whitelist: the adapter remains authoritative and may accept unlisted model ids. One asynchronous `resolveModel()` query returns exact model identity plus optional correctness-sensitive context capacity, an adapter-configured `defaultMaxTokens`, and ordered model-owned reasoning ids with an optional deployment default; absent fields mean unavailable metadata or provider-owned behavior, not invalid catalog membership. The resolver receives optional cancellation and must settle promptly after abort. `LlmRuntime.resolveModelInfo()` validates and detaches the aggregate. At the final adapter boundary, `resolveCallConfig()` materializes the output default only when `maxTokens` is absent and validates and materializes reasoning, so direct calls cannot bypass either configured behavior; direct dispatch captures one registration before awaiting that resolution. The agent loop instead uses `prepareCall()` to keep the same registration across model resolution, durable header logging, and dispatch, retain detached context metadata from that exact lookup, and report which config fields the adapter defaulted. Adapter lookup happens at the terminal continuation of the `llm/stream` waterfall, so a listener may short-circuit the call or route a mutable one-shot request before lookup. AgentLoop observes a request attempt once the outer waterfall returns a stream handle; that limited boundary does not prove a lazy terminal adapter was constructed or began provider I/O. The `block-start` / `block-end` `index` correlation and the assembler together mean an adapter only has to emit well-formed chunks — block reassembly is not each adapter's problem. [architecture.md](../architecture.md#turn-flow) shows where `ctx.llm.stream()` and the `llm/stream` waterfall sit in one turn.
+`LlmAdapter` is the provider contract: subclass, implement `stream()`, and register one adapter instance with `ctx.llm.registerAdapter(providers, adapter)`. `GenerateOptions.provider` selects the registered adapter; `GenerateOptions.model` is passed to that adapter and need not be registered at lifecycle start. Duplicate provider routes fail atomically. Optional `alternateRoute()` lets an adapter hand one call to another registered route — a windowed provider substitution, for example — while the requested provider and model stay the call's identity and the executing route resolves its own credential. Optional `providerRetryPolicy()` is captured per route with normal defaults, while `providerInfo()` and asynchronous `listModels()` feed `LlmRuntime.listProviders()` / `listModels()` with detached selector metadata. That catalog is advisory rather than a request whitelist: the adapter remains authoritative and may accept unlisted model ids. One asynchronous `resolveModel()` query returns exact model identity plus optional correctness-sensitive context capacity, an adapter-configured `defaultMaxTokens`, and ordered model-owned reasoning ids with an optional deployment default; absent fields mean unavailable metadata or provider-owned behavior, not invalid catalog membership. The resolver receives optional cancellation and must settle promptly after abort. `LlmRuntime.resolveModelInfo()` validates and detaches the aggregate. At the final adapter boundary, `resolveCallConfig()` materializes the output default only when `maxTokens` is absent and validates and materializes reasoning, so direct calls cannot bypass either configured behavior; direct dispatch captures one registration before awaiting that resolution. The agent loop instead uses `prepareCall()` to keep the same registration across model resolution, durable header logging, and dispatch, retain detached context metadata from that exact lookup, and report which config fields the adapter defaulted. Adapter lookup happens at the terminal continuation of the `llm/stream` waterfall, so a listener may short-circuit the call or route a mutable one-shot request before lookup. AgentLoop observes a request attempt once the outer waterfall returns a stream handle; that limited boundary does not prove a lazy terminal adapter was constructed or began provider I/O. The `block-start` / `block-end` `index` correlation and the assembler together mean an adapter only has to emit well-formed chunks — block reassembly is not each adapter's problem. [architecture.md](../architecture.md#turn-flow) shows where `ctx.llm.stream()` and the `llm/stream` waterfall sit in one turn.
+
+```ts type-equiv
+/**
+ * A route the LLM service executes one call through in place of the route the
+ * caller named. Returned by {@link LlmAdapter.alternateRoute}, it lets an
+ * adapter hand a call to a route another adapter owns — a time-windowed
+ * substitution, say — while the call keeps the requested route's identity.
+ */
+interface LlmAlternateRoute {
+  /** Registered provider route that executes the call. */
+  readonly provider: string
+  /** Exact model id that route receives. */
+  readonly model: string
+}
+```
 
 ```ts type-equiv
 /** One model call whose config and adapter registration were resolved together. */
@@ -936,6 +993,24 @@ declare abstract class LlmAdapter {
    * @returns the same target used by request serialization, before provider-internal processing.
    */
   imageRequestTarget(_provider: string, _model: string, image: ImageAttachmentRef): ImageRequestTarget;
+  /**
+   * The route one call executes through when this adapter cannot serve it
+   * itself. The LLM service resolves the returned route through the registry
+   * and dispatches there, while the call keeps the requested provider and model
+   * as its identity: the Session log, the model picker, and replay state do not
+   * follow the substitution. The executing route owns its credential, so this
+   * seam carries no key.
+   *
+   * Called once per call, before the credential await, by both
+   * {@link prepareCall} and a direct {@link stream}. Return `undefined` for
+   * local dispatch; a returned route no adapter serves fails the call with
+   * `NO_ADAPTER`. Implementations answer from state they already resolved and
+   * perform no I/O.
+   * @param _provider - provider route the caller named.
+   * @param _model - exact model id the caller named.
+   * @returns the route that executes the call, or `undefined` to execute locally.
+   */
+  alternateRoute(_provider: string, _model: string): LlmAlternateRoute | undefined;
   /**
    * List models this adapter can currently advertise for one owned provider.
    * Core routing accepts unlisted model ids; catalog-driven entry points such
@@ -1213,6 +1288,23 @@ The provider topology changed: an adapter registered or unregistered routes, or 
 
 Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
 
+<a id="llmmodels-updated--emit"></a>
+
+#### `llm/models-updated` — emit
+
+A provider's advertised models or display metadata changed; consumers reload `listModels()`.
+
+```ts cordis-catalog
+/**
+ * A provider's advertised models or display metadata changed; consumers reload `listModels()`.
+ * @mode emit
+ * @param provider - route whose model catalog changed.
+ */
+'llm/models-updated'(provider: string): void
+```
+
+Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
+
 <a id="llmstream--waterfall"></a>
 
 #### `llm/stream` — waterfall
@@ -1236,4 +1328,33 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 ```
 
 Source: [`packages/llm/llm/src/index.ts`](../../packages/llm/llm/src/index.ts)
+
+<a id="llm-pi-ai-events"></a>
+
+### `llm-pi-ai/*` events
+
+<a id="llm-pi-airequest-headers--waterfall"></a>
+
+#### `llm-pi-ai/request-headers` — waterfall
+
+Prepare headers for one pi-ai inference call, excluding model discovery. Listeners run synchronously and must call next(); they may edit only the request-owned headers and must not retain them. Throws fail the call with REQUEST_HEADERS before inference I/O. Harness attribution wins afterward. Non-TypeError messages are user-visible and must exclude secrets. TypeError details and non-Error values are replaced with safe guidance.
+
+```ts cordis-catalog
+/**
+ * Prepare headers for one pi-ai inference call, excluding model discovery.
+ * Listeners run synchronously and must call next(); they may edit only the
+ * request-owned headers and must not retain them. Throws fail the call with
+ * REQUEST_HEADERS before inference I/O. Harness attribution wins afterward.
+ * Non-TypeError messages are user-visible and must exclude secrets. TypeError
+ * details and non-Error values are replaced with safe guidance.
+ * @mode waterfall
+ * @param request - immutable routing metadata from the exact prepared call.
+ * @param headers - fresh profile headers, shared only within this dispatch.
+ * @param next - continue header preparation through the remaining listeners.
+ * @returns headers passed to pi-ai after Harness attribution is applied.
+ */
+'llm-pi-ai/request-headers'(request: PiAiRequestHeaderContext, headers: Headers, next: () => Headers): Headers
+```
+
+Source: [`packages/llm/llm-pi-ai/src/index.ts`](../../packages/llm/llm-pi-ai/src/index.ts)
 <!-- END GENERATED cordis-surface -->

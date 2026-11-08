@@ -17,7 +17,8 @@
   - text: Continuing goal
   - time: {{clock}}
 - status: Stopped
-- button "Stopped" [disabled]
+- button "Stopped" [disabled] [expanded]
+- button "Injected context"
 - paragraph: partial
 - text: Stopped {{clock}}
 - button "Copy"
@@ -51,6 +52,7 @@
 - textbox "Message or run a task, / commands, @ files or sessions"
 - button "Add files or run commands"
 - 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Push guard ON" [pressed]
 - button "Select model, current DeepSeek · DeepSeek-V4-Flash": DeepSeek · DeepSeek-V4-Flash
 - button "Send message" [disabled]
 - button "3 turns 3 steps · {{throughput}} tok/s": 3 turns 3 steps{{throughput}} tok/s

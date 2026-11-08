@@ -31,11 +31,13 @@
 - button "compact Compacted 5 history items (~{{tokens}} tokens)"
 - status: Completed
 - button "Completed in {{duration}}" [disabled]
+- button "Context injection AGENTS.md"
 - 'button "feedback Feedback recorded for session {{seededId}} Anonymous user: {{uuid}}." [expanded]'
 - text: "Feedback recorded for session {{seededId}} Anonymous user: {{uuid}}."
 - textbox "Message or run a task, / commands, @ files or sessions"
 - button "Add files or run commands"
 - 'button "Access mode, current: Read Only"': Read Only
+- button "Push guard ON" [pressed]
 - button "Select model, current DeepSeek · DeepSeek-V4-Flash": DeepSeek · DeepSeek-V4-Flash
 - button "Send message" [disabled]
 - button "1 turns 2 steps · {{throughput}} tok/s": 1 turns 2 steps{{throughput}} tok/s

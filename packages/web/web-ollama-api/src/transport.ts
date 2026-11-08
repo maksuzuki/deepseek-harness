@@ -36,8 +36,8 @@ export function ollamaEndpoint(configured: string, operation: 'web_search' | 'we
   return trimmed.endsWith(suffix) ? trimmed : `${trimmed}${suffix}`
 }
 
-/** Default credential reference resolved for each operation. */
-export const OLLAMA_DEFAULT_API_KEY_ENV = 'OLLAMA_CLOUD_API_KEY'
+/** Credential reference both operations resolve; the Ollama Cloud model route stores its key here. */
+export const OLLAMA_CREDENTIAL_REF = 'OLLAMA_CLOUD_API_KEY'
 
 /** Authentication and endpoint values resolved once for an operation. */
 export interface OllamaWebAuth {
@@ -169,11 +169,10 @@ async function resolveApiKey(options: OllamaWebAuth, signal?: AbortSignal): Prom
   const { resolveApiKey } = options
   const resolved = resolveApiKey === undefined ? undefined : await resolveCredential(resolveApiKey, signal)
   if (resolved !== undefined && resolved.length > 0) return resolved
-  const ref = options.apiKeyEnv ?? OLLAMA_DEFAULT_API_KEY_ENV
+  const ref = options.apiKeyEnv ?? OLLAMA_CREDENTIAL_REF
   throw new WebError(
     `Ollama Cloud web access has no API key for "${ref}"; store it through the credentials service`
-    + ' (the Ollama Cloud search settings page writes it), export it in the launching environment, or set a literal'
-    + ' "apiKey" in the web-ollama-api config',
+    + ' (the Ollama Cloud model provider writes it), or export it in the launching environment',
     'WEB_PROVIDER_CREDENTIAL_MISSING',
   )
 }
@@ -207,13 +206,9 @@ function endpointError(
   subject: OllamaWebSubject, endpoint: string, message: string, cause?: unknown,
 ): WebError {
   return new WebError(
-    `${message}\n\nThe web ${subject} request used endpoint ${JSON.stringify(endpoint)}. `
-    + `${subject === 'search' ? 'Search' : 'Fetch'} endpoint configuration is separate from chat. `
-    + 'If that endpoint is not intended, '
-    + 'guide the user to Settings > Plugins > Ollama Cloud search, where they can '
-    + 'change and save Search API base URL. If that settings page is unavailable, the user can set '
-    + 'OLLAMA_SEARCH_BASE_URL or configure web-ollama-api.baseURL to a trusted Ollama Cloud base. '
-    + 'Only the user should choose or change the endpoint.',
+    `${message}\n\nThe web ${subject} request used endpoint ${JSON.stringify(endpoint)}, which this package fixes at Ollama Cloud's public API. `
+    + 'Check that the deployment reaches that host and that the Ollama Cloud API key (OLLAMA_CLOUD_API_KEY) is valid. '
+    + 'Only the user should change that key.',
     'WEB_PROVIDER_ERROR',
     cause === undefined ? undefined : { cause },
   )

@@ -12,6 +12,8 @@
 - status: 完了
 - button "完了まで {{duration}}" [expanded]
 - button "コードを実行しました、コマンドを実行しました、ファイルを読み取りました" [expanded]
+- button "コンテキスト注入 runtime-context"
+- button "コンテキスト注入 time-context"
 - 'button "思考 The user wants me to write a single `run_code` program that:"'
 - button "コード Run bash echo and catch missing file read"
 - button "Bash Echo CODE_ROUND_OK" [expanded]
@@ -31,6 +33,7 @@
 - textbox "メッセージを送信するかタスクを実行、/ コマンド、@ ファイルやセッション"
 - button "ファイルを追加またはコマンドを実行"
 - 'button "アクセスモード、現在: ワークスペース書き込み"': ワークスペース書き込み
+- button "プッシュガード ON" [pressed]
 - button "モデルを選択、現在 DeepSeek · DeepSeek-V4-Flash": DeepSeek · DeepSeek-V4-Flash
 - button "メッセージを送信" [disabled]
 - button "1ターン 2ステップ · {{throughput}} tok/s": 1ターン 2ステップ{{throughput}} tok/s
