@@ -4,6 +4,7 @@ import type { ConnectionWebSocket } from '@deepseek-ai/dsh-client-connection/cli
 
 import {
   parseRemoteStreamServerMessage,
+  REMOTE_EVENT_STREAM_ENDPOINT,
   REMOTE_STREAM_MUX_PATH,
   type RemoteStreamClientMessage,
   type RemoteStreamServerMessage,
@@ -39,6 +40,8 @@ interface UplinkPump {
 /** One open logical stream: its downlink frames and, once the `open` frame is out, its uplink pump. */
 interface LogicalStream {
   readonly inbox: StreamInbox
+  /** Whether this stream's failure advances the Connection retry loop. */
+  readonly ownsReconnect: boolean
   pump: UplinkPump | undefined
 }
 
@@ -63,7 +66,9 @@ export class RemoteStreamMuxClient {
 
   /**
    * @param openSocket - selected authenticated carrier; omission uses the browser socket.
-   * @param waitForReconnect - answering Clients wait for Connection to replace a lost socket; passive Clients fail later opens immediately.
+   * @param waitForReconnect - answering Clients with an active event-generation
+   * stream wait for Connection to replace a lost socket; passive Clients and
+   * answering Clients without that owner fail the next open immediately.
    */
   constructor(
     private readonly openSocket: (path: string) => ConnectionWebSocket = () => new WebSocket(remoteStreamUrl()),
@@ -100,8 +105,9 @@ export class RemoteStreamMuxClient {
 
   /**
    * Open one logical stream on the persistent physical connection.
-   * After an established socket is lost, answering Clients wait for Connection
-   * to reconnect or for their signal to abort; passive Clients reject immediately.
+   * After an established socket is lost, answering Clients with an active event
+   * generation wait for Connection to reconnect or for their signal to abort;
+   * other Clients reject immediately.
    * An initial socket failure rejects both modes.
    * @param endpoint - Typert Remote stream endpoint.
    * @param payload - endpoint request encoded on the wire.
@@ -119,7 +125,11 @@ export class RemoteStreamMuxClient {
     signal.throwIfAborted()
     const streamId = randomUUID()
     const inbox = new StreamInbox()
-    const stream: LogicalStream = { inbox, pump: undefined }
+    const stream: LogicalStream = {
+      inbox,
+      ownsReconnect: this.waitForReconnect && endpoint === REMOTE_EVENT_STREAM_ENDPOINT,
+      pump: undefined,
+    }
     let carrier: ConnectionWebSocket | undefined
     let opened = false
     let terminal = false
@@ -351,9 +361,13 @@ export class RemoteStreamMuxClient {
   ): void {
     if (this.socket !== socket) return
     this.socket = undefined
-    if (!this.waitForReconnect) this.failure = error
+    // The active event generation reports loss to Connection, which owns the
+    // reconnect schedule. Without that owner, retain the failure for the next
+    // opener so a new generation does not wait for the readiness deadline.
+    const ownerWillReconnect = [...this.streams.values()].some(stream => stream.ownsReconnect)
+    if (!ownerWillReconnect) this.failure = error
     this.failAll(error)
-    if (!this.waitForReconnect) {
+    if (!ownerWillReconnect) {
       for (const waiter of [...this.waiters]) waiter.reject(error)
     }
   }
