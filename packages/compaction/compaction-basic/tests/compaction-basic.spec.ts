@@ -13,7 +13,16 @@ import {
   resolveTargetPolicy,
 } from '@deepseek-ai/dsh-compaction-basic/src/config.ts'
 import type { CompactionResult } from '@deepseek-ai/dsh-compaction'
-import LlmRuntime, { createUserMessage, ToolCallId, CONTEXT_WINDOW_EXCEEDED_CODE, createSystemMessage, createToolResultMessage, LlmAdapter , createMessage } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, {
+  createUserMessage,
+  ToolCallId,
+  CONTEXT_WINDOW_EXCEEDED_CODE,
+  createSystemMessage,
+  createToolResultMessage,
+  LlmAdapter,
+  LlmError,
+  createMessage,
+} from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock,
@@ -1990,6 +1999,30 @@ describe('automatic listener and loader composition', () => {
     expect(session.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(false)
   })
 
+  it.each([
+    ['summary output cap', Object.assign(new Error('summarization truncated at the token cap'), { code: 'MAX_TOKENS' })],
+    ['nested context overflow', new LlmError('summary request exhausted its context', CONTEXT_WINDOW_EXCEEDED_CODE)],
+  ])('stops before the request after %s', async (_label, failure) => {
+    const ctx = createContext()
+    const compact = new TestCompactionEngine(ctx, {
+      headroomTokens: 0,
+      maxTokens: 8192,
+      thresholdRatio: 0.5,
+      retainTokens: 180,
+    })
+    compact.error = failure
+
+    try {
+      await preStep(ctx, agent(conversation(4), MODEL))
+      expect.fail('pressure summary truncation should stop the request')
+    } catch (error) {
+      expect(error).toBeInstanceOf(LlmError)
+      if (!(error instanceof LlmError)) throw error
+      expect(error.code).toBe(CONTEXT_WINDOW_EXCEEDED_CODE)
+      expect(error.message).toContain('could not make the next request safe')
+    }
+  })
+
   it('warns once per routed target when proactive pressure has no context metadata', async () => {
     const ctx = createContext()
     const warnings: string[] = []
@@ -2061,25 +2094,26 @@ describe('automatic listener and loader composition', () => {
     expect(compact.calls).toHaveLength(0)
   })
 
-  it('force-compacts below normal pressure for canonical overflow and retries only after replacement', async () => {
-    const ctx = createContext(10_000)
+  it('converges below pressure for canonical overflow before retrying', async () => {
+    const ctx = createContext(1_000)
     void new TestCompactionEngine(ctx, {
       headroomTokens: 0,
       maxTokens: 8192,
-      thresholdRatio: 1,
-      retainTokens: 900,
+      thresholdRatio: 0.5,
+      retainTokens: 50,
     })
-    const session = conversation(3)
+    const session = conversation(4)
     const beforeGeneration = session.surface.replaceGeneration
     const retainedSeq = session.surface.nodes.at(-1)!
-    const threshold = 10_000
-    expect(ctx.tokenMeter.measure(session).totalTokens).toBeLessThan(threshold)
+    const threshold = 500
+    expect(ctx.tokenMeter.measure(session).totalTokens).toBeGreaterThanOrEqual(threshold)
     const decision = await recover(ctx, agent(session, 'unconfigured-agent-fallback'), overflow())
 
     expect(decision).toBe(true)
     expect(session.surface.replaceGeneration).toBe(beforeGeneration + 1)
     expect(session.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(true)
     expect(session.surface.nodes).toContain(retainedSeq)
+    expect(ctx.tokenMeter.measure(session).totalTokens).toBeLessThan(threshold)
   })
 
   it('authorizes overflow retry when pruning alone advances an indivisible surface', async () => {
@@ -2124,7 +2158,7 @@ describe('automatic listener and loader composition', () => {
     expect(summarizedText(compact.calls[0]!.input)).toContain('tool result middle pruned')
   })
 
-  it('retries from a durable prune when later overflow summarization throws', async () => {
+  it('does not retry from a durable prune when later overflow summarization throws', async () => {
     const ctx = createContext(10_000)
     const warnings: string[] = []
     ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
@@ -2142,12 +2176,12 @@ describe('automatic listener and loader composition', () => {
     compact.error = new Error('summary unavailable after prune')
     const session = oversizedToolResult(3_000, true)
 
-    expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(true)
+    expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(false)
     expect(session.surface.replaceGeneration).toBe(1)
     expect(session.snapshotEvents().filter(event => event.type === 'tool/result')).toHaveLength(2)
     expect(session.snapshotEvents().findLast(event => event.type === 'compaction/end')?.data)
       .toMatchObject({ error: 'summary unavailable after prune' })
-    expect(warnings).toContainEqual(expect.stringContaining('retrying from the replacement surface'))
+    expect(warnings).toContainEqual(expect.stringContaining('preserving the original request error'))
   })
 
   it('lets cancellation win when summary throws after a durable prune', async () => {
@@ -2173,7 +2207,7 @@ describe('automatic listener and loader composition', () => {
   })
 
   it('preserves the newest whole tool-call/result pair during forced overflow compaction', async () => {
-    const ctx = createContext()
+    const ctx = createContext(10_000)
     void new TestCompactionEngine(ctx, {
       headroomTokens: 0,
       maxTokens: 8192,
@@ -2211,6 +2245,36 @@ describe('automatic listener and loader composition', () => {
 
     expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(false)
     expect(session.surface.replaceGeneration).toBe(0)
+  })
+
+  it('does not retry when a replacement fails to reduce the request budget', async () => {
+    const ctx = createContext()
+    const compact = new TestCompactionEngine(ctx)
+    const session = conversation(2)
+    const replaced = session.surface.nodes[0]!
+    const fakeResult: CompactionResult = {
+      compactionId: CompactionId('same-budget-compaction'),
+      startSeq: SessionSeq(1),
+      summarySeq: SessionSeq(2),
+      endSeq: SessionSeq(3),
+      summary: [{ type: 'text', text: 'fake' }],
+      shadowedRange: { start: replaced, end: replaced },
+      shadowedSeqs: [replaced],
+      shadowedTokenCount: 10,
+    }
+    vi.spyOn(compact, 'compactIfNeeded').mockImplementation(() => {
+      session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: `${'fixture '.repeat(40).trim()} user 1` }],
+        source: { kind: 'user' },
+      }), {
+        surfaceOp: { op: 'replace', startSeq: replaced, endSeq: replaced },
+        sourceEventSeqs: [replaced],
+      })
+      return Promise.resolve(fakeResult)
+    })
+
+    expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(false)
+    expect(session.surface.replaceGeneration).toBe(1)
   })
 
   it('delegates downstream exactly once when no replacement is available', async () => {
@@ -2299,8 +2363,14 @@ describe('automatic listener and loader composition', () => {
   })
 
   it('honors retry caps and ignores non-context failures', async () => {
-    const ctx = createContext()
-    const compact = new TestCompactionEngine(ctx, { maxOverflowRetries: 1 })
+    const ctx = createContext(10_000)
+    const compact = new TestCompactionEngine(ctx, {
+      headroomTokens: 0,
+      maxTokens: 8192,
+      thresholdRatio: 1,
+      retainTokens: 900,
+      maxOverflowRetries: 1,
+    })
     const compactSpy = vi.spyOn(compact, 'compactIfNeeded')
     const owner = agent(conversation(3), MODEL)
     expect(await recover(ctx, owner, Object.assign(new Error('rate limit'), { code: 'RATE_LIMIT' })))

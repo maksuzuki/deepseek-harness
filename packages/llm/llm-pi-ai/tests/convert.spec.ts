@@ -685,6 +685,7 @@ describe('toPiContext', () => {
     ['non-string response id', { ...validReplay, response: { ...validResponse, responseId: 1 } }, 'responseId must be a string'],
     ['non-string provider thinking level', { ...validReplay, response: { ...validResponse, providerThinkingLevel: 1 } }, 'providerThinkingLevel must be a string'],
     ['null provider thinking level', { ...validReplay, response: { ...validResponse, providerThinkingLevel: null } }, 'providerThinkingLevel must be a string'],
+    ['non-string context revision', { ...validReplay, response: { ...validResponse, contextRevision: 1 } }, 'contextRevision must be a string'],
     ['array usage', { ...validReplay, response: { ...validResponse, usage: [] } }, 'usage must be an object'],
     ['negative usage input', { ...validReplay, response: { ...validResponse, usage: { input: -1, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 } } }, 'usage input must be a non-negative safe integer'],
     ['zero usage', { ...validReplay, response: { ...validResponse, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 } } }, 'usage must report positive context tokens'],
@@ -758,7 +759,7 @@ describe('toStreamChunks', () => {
       { type: 'text_delta', contentIndex: 0, delta: 'hi', partial: assistant() },
       { type: 'text_end', contentIndex: 0, content: 'hi', partial: assistant() },
       { type: 'done', reason: 'stop', message: done },
-    )))
+    ), undefined, undefined, undefined, 'checkpoint-1'))
     expect(chunks).toEqual([
       { type: 'block-start', index: 0, blockType: 'text' },
       { type: 'text-delta', index: 0, text: 'hi' },
@@ -775,6 +776,7 @@ describe('toStreamChunks', () => {
             provider: 'deepseek',
             model: 'deepseek-v4-flash',
             usage: { input: 3, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 5 },
+            contextRevision: 'checkpoint-1',
             stopReason: 'stop',
           },
           blocks: [{ type: 'text' }],

@@ -43,6 +43,8 @@ export interface PiAiReplayResponse {
   providerThinkingLevel?: string
   /** Exact token usage through this response, when the provider reported it. */
   usage?: PiAiReplayUsage
+  /** Latest compaction checkpoint included in the request that produced this response. */
+  contextRevision?: string
   stopReason: AssistantMessage['stopReason']
 }
 
@@ -98,9 +100,14 @@ function replayUsageOf(usage: PiUsage): PiAiReplayUsage | undefined {
  * removes one.
  * @param message - completed native pi-ai assistant response.
  * @param requestedModel - request identity stored in the assistant source; defaults to the native model.
+ * @param contextRevision - latest checkpoint included in the completed request.
  * @returns the versioned lossless-JSON replay projection.
  */
-export function toPiReplayState(message: AssistantMessage, requestedModel = message.model): ReplayEnvelope {
+export function toPiReplayState(
+  message: AssistantMessage,
+  requestedModel = message.model,
+  contextRevision?: string,
+): ReplayEnvelope {
   const usage = replayUsageOf(message.usage)
   const response: PiAiReplayResponse = {
     kind: 'pi-ai',
@@ -112,6 +119,7 @@ export function toPiReplayState(message: AssistantMessage, requestedModel = mess
     ...message.responseId === undefined ? {} : { responseId: message.responseId },
     ...message.providerThinkingLevel === undefined ? {} : { providerThinkingLevel: message.providerThinkingLevel },
     ...usage === undefined ? {} : { usage },
+    ...contextRevision === undefined ? {} : { contextRevision },
     stopReason: message.stopReason,
   }
   return {
@@ -159,6 +167,7 @@ function readReplayState(value: unknown): PiAiReplayState {
   if (response['responseModel'] !== undefined && typeof response['responseModel'] !== 'string') return invalidReplay('responseModel must be a string')
   if (response['responseId'] !== undefined && typeof response['responseId'] !== 'string') return invalidReplay('responseId must be a string')
   if (response['providerThinkingLevel'] !== undefined && typeof response['providerThinkingLevel'] !== 'string') return invalidReplay('providerThinkingLevel must be a string')
+  if (response['contextRevision'] !== undefined && typeof response['contextRevision'] !== 'string') return invalidReplay('contextRevision must be a string')
   const rawUsage = response['usage']
   let usage: PiAiReplayUsage | undefined
   if (rawUsage !== undefined) {
@@ -235,7 +244,12 @@ function foreignAssistant(message: HarnessAssistantMessage): AssistantMessage {
 }
 
 /** Recombine durable Harness content with validated pi-ai replay metadata. */
-function replayedAssistant(message: HarnessAssistantMessage, source: ModelMessageSource, rawState: unknown): AssistantMessage {
+function replayedAssistant(
+  message: HarnessAssistantMessage,
+  source: ModelMessageSource,
+  rawState: unknown,
+  contextRevision: string | undefined,
+): AssistantMessage {
   const state = readReplayState(rawState)
   if (state.response.provider !== source.provider) return invalidReplay('provider does not match assistant source')
   if (state.response.model !== source.model) return invalidReplay('model does not match assistant source')
@@ -276,7 +290,7 @@ function replayedAssistant(message: HarnessAssistantMessage, source: ModelMessag
     ...state.response.responseModel === undefined ? {} : { responseModel: state.response.responseModel },
     ...state.response.responseId === undefined ? {} : { responseId: state.response.responseId },
     ...state.response.providerThinkingLevel === undefined ? {} : { providerThinkingLevel: state.response.providerThinkingLevel },
-    usage: replayUsage(state.response.usage),
+    usage: replayUsage(state.response.contextRevision === contextRevision ? state.response.usage : undefined),
     stopReason: state.response.stopReason,
     timestamp: 0,
   }
@@ -293,13 +307,18 @@ function replayedAssistant(message: HarnessAssistantMessage, source: ModelMessag
  * @param message - model-produced assistant content with provider, model, and optional adapter-owned replay metadata.
  * @param onDegrade - called with the diagnostic reason when an unusable replay
  *   state falls back to provider-neutral conversion.
+ * @param contextRevision - latest checkpoint in the current request; mismatched historical usage is discarded.
  * @returns a native pi-ai assistant message reconstructed from durable content.
  */
-export function toPiAssistant(message: HarnessAssistantMessage, onDegrade?: (reason: string) => void): AssistantMessage {
+export function toPiAssistant(
+  message: HarnessAssistantMessage,
+  onDegrade?: (reason: string) => void,
+  contextRevision?: string,
+): AssistantMessage {
   const source = message.source
   if (source.replayState === undefined) return foreignAssistant(message)
   try {
-    return replayedAssistant(message, source, source.replayState)
+    return replayedAssistant(message, source, source.replayState, contextRevision)
   } catch (error: unknown) {
     /* v8 ignore next -- replayedAssistant throws only INVALID_REPLAY_STATE LlmErrors; the
        guard keeps a future non-replay failure loud instead of silently degrading it */

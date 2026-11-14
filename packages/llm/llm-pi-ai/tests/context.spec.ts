@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import type {
   AttachmentStore,
   ImageAttachmentRef,
@@ -7,15 +8,26 @@ import type {
   RequestImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
 import { createDeveloperMessage, ToolCallId, createAssistantMessage, createMessage, createToolResultMessage, createUserMessage, offloadedImageText } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, GenerateOptions, Message, RequestUserInput } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, GenerateOptions, Message, MessageSourceMap, RequestUserInput } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
-import { toPiContext } from '../src/context.ts'
+import type { AssistantMessage as PiAssistantMessage, Model as PiModel } from '@earendil-works/pi-ai'
+import { clampMaxTokensToContext } from '@earendil-works/pi-ai/api/simple-options'
+import { estimateContextTokens } from '@earendil-works/pi-ai/utils/estimate'
+import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
+import { contextRevisionOf, toPiContext } from '../src/context.ts'
 import type { PiImageRequestContext } from '../src/context.ts'
-import { toPiAssistant } from '../src/replay.ts'
+import { toPiAssistant, toPiReplayState } from '../src/replay.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     'test': { kind: 'test' } & ContextFormed
+  }
+}
+
+function checkpointSource(id: string): MessageSourceMap['compact-checkpoint'] {
+  return {
+    kind: 'compact-checkpoint',
+    compactionId: brandString<MessageSourceMap['compact-checkpoint']['compactionId']>(id),
   }
 }
 
@@ -56,6 +68,19 @@ function projectionStore(
 
 const attachments = projectionStore()
 
+const context32kModel: PiModel<'openai-completions'> = {
+  id: 'gpt-4.1',
+  name: '32K fixture',
+  api: 'openai-completions',
+  provider: 'openai',
+  baseUrl: 'http://127.0.0.1/unused',
+  reasoning: false,
+  input: ['text'],
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  contextWindow: 32_768,
+  maxTokens: 4096,
+}
+
 function imageContext(
   store: AttachmentStore,
   overrides: Partial<Omit<PiImageRequestContext, 'attachments'>> = {},
@@ -81,7 +106,82 @@ function history(role: 'system' | 'assistant', content: ContentBlock[]): Message
     : createMessage({ role, content, source: { kind: 'model', provider: 'openai', model: 'gpt-4.1' } })
 }
 
+function replayedUsageAssistant(totalTokens: number, contextRevision?: string): Message {
+  const native: PiAssistantMessage = {
+    role: 'assistant',
+    content: [{ type: 'text', text: 'retained response' }],
+    api: 'openai-completions',
+    provider: 'openai',
+    model: 'gpt-4.1',
+    usage: {
+      input: totalTokens,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: 'stop',
+    timestamp: 1,
+  }
+  return createAssistantMessage({
+    content: [{ type: 'text', text: 'retained response' }],
+    source: { provider: 'openai', model: 'gpt-4.1', replayState: toPiReplayState(native, native.model, contextRevision) },
+  })
+}
+
 describe('pi-ai request context conversion', () => {
+  it('selects the latest valid checkpoint revision in message order', () => {
+    const first = createUserMessage({
+      content: [{ type: 'text', text: 'first summary' }],
+      source: checkpointSource('checkpoint-1'),
+    })
+    const malformed = structuredClone(first)
+    Reflect.set(malformed, 'source', { kind: 'compact-checkpoint', compactionId: 1 })
+    const latest = createUserMessage({
+      content: [{ type: 'text', text: 'latest summary' }],
+      source: checkpointSource('checkpoint-2'),
+    })
+
+    expect(contextRevisionOf([first, malformed, latest])).toBe('checkpoint-2')
+  })
+
+  it('does not reuse pre-checkpoint assistant usage for the compacted prefix', () => {
+    const checkpoint = createUserMessage({
+      content: [{ type: 'text', text: 'compacted history' }],
+      source: checkpointSource('checkpoint-1'),
+    })
+    const context = normalizeContext(toPiContext(request([
+      checkpoint,
+      replayedUsageAssistant(26_509),
+      user([{ type: 'text', text: 'r'.repeat(15_736) }]),
+    ])))
+
+    expect(estimateContextTokens(context)).toMatchObject({
+      usageTokens: 0,
+      lastUsageIndex: null,
+    })
+    expect(estimateContextTokens(context).tokens).toBeLessThan(32_768 - 4096 - 4096)
+    expect(clampMaxTokensToContext(context32kModel, context, 4096)).toBe(4096)
+  })
+
+  it('keeps usage produced from the current checkpoint revision', () => {
+    const checkpoint = createUserMessage({
+      content: [{ type: 'text', text: 'compacted history' }],
+      source: checkpointSource('checkpoint-1'),
+    })
+    const context = normalizeContext(toPiContext(request([
+      checkpoint,
+      replayedUsageAssistant(8_000, 'checkpoint-1'),
+      user([{ type: 'text', text: 'next request' }]),
+    ])))
+
+    expect(estimateContextTokens(context)).toMatchObject({
+      usageTokens: 8_000,
+      lastUsageIndex: 1,
+    })
+  })
+
   it.each(['user', 'system', 'assistant', 'tool'] as const)('rejects tool-change blocks in %s history', (role) => {
     for (const type of ['tool-addition', 'tool-removal'] as const) {
       const message = { id: 'invalid', role, source: { kind: 'test' }, content: [{ type, toolName: 'search' }] } as unknown as Message

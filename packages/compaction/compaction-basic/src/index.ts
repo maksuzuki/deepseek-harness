@@ -166,8 +166,21 @@ export class BasicCompactionEngine extends CompactionEngine {
           if (error instanceof TargetPressureConfigError) {
             if (this.warnedPressureConfigTargets.has(error.targetKey)) return next()
             this.warnedPressureConfigTargets.add(error.targetKey)
+            ctx.logger.warn(`step compaction failed: ${error.message}; continuing the turn`)
+            return next()
           }
+          signal.throwIfAborted()
           const message = error instanceof Error ? error.message : String(error)
+          const code = error instanceof LlmError
+            ? error.code
+            : error instanceof Error && 'code' in error ? error.code : undefined
+          if (code === 'MAX_TOKENS' || code === CONTEXT_WINDOW_EXCEEDED_CODE) {
+            throw new LlmError(
+              `Context compaction could not make the next request safe: ${message}`,
+              CONTEXT_WINDOW_EXCEEDED_CODE,
+              { cause: error },
+            )
+          }
           ctx.logger.warn(`step compaction failed: ${message}; continuing the turn`)
         }
       }
@@ -216,41 +229,37 @@ export class BasicCompactionEngine extends CompactionEngine {
     ) => {
       if (failure.code !== CONTEXT_WINDOW_EXCEEDED_CODE || signal.aborted) return next()
       this.overflowAgents.set(agent.session, agent)
+      const header = agent.session.requestHeader()
       const target = routedTarget(agent.session)
-      if (target === undefined) return next()
+      if (header === undefined || target === undefined) return next()
       const policy = resolveTargetPolicy(this.config, target)
       const retries = this.overflowRetries.get(agent) ?? 0
       if (retries >= policy.maxOverflowRetries) return next()
 
       const generation = agent.session.surface.replaceGeneration
+      const budgetBefore = this.ctx.tokenMeter.measure(agent.session, header).totalTokens
       let result: CompactionResult | null
       try {
         result = await this.compactIfNeeded(agent, 'context-overflow', signal)
       } catch (recoveryError: unknown) {
         const message = recoveryError instanceof Error ? recoveryError.message : String(recoveryError)
-        // A model-free prune can land before later summary work fails. That
-        // durable reduction is sufficient retry proof; do not discard it just
-        // because the optional second phase threw. Cancellation still wins.
-        // oxlint-disable-next-line typescript/no-unnecessary-condition -- the signal can abort while recovery is awaited.
-        if (!signal.aborted && agent.session.surface.replaceGeneration > generation) {
-          ctx.logger.warn(
-            `context-overflow compaction failed after durable surface progress: ${message}; `
-            + 'retrying from the replacement surface',
-          )
-          this.overflowRetries.set(agent, retries + 1)
-          return { kind: 'retry' }
-        }
         ctx.logger.warn(
-          // oxlint-disable-next-line typescript/no-unnecessary-condition -- the signal can abort while recovery is awaited.
           `context-overflow compaction failed: ${message}; ${signal.aborted
             ? 'cancellation prevents retry'
             : 'preserving the original request error'}`,
         )
         return next()
       }
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- the signal can abort while compaction is awaited.
       if (signal.aborted
         || agent.session.surface.replaceGeneration <= generation) return next()
+      const budgetAfter = this.ctx.tokenMeter.measure(agent.session, header).totalTokens
+      if (budgetAfter >= budgetBefore) {
+        ctx.logger.warn(
+          'context-overflow compaction did not reduce the rebuilt request budget '
+          + `(${budgetAfter} estimated tokens >= ${budgetBefore}); preserving the original request error`,
+        )
+        return next()
+      }
       if (result !== null) logResult(result, 'context overflow recovery')
       this.overflowRetries.set(agent, retries + 1)
       return { kind: 'retry' }

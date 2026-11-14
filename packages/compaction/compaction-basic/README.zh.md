@@ -120,7 +120,7 @@ kind: "package-reference"
 
 `agent/request` listener 等待路由 listener 选定目标，再在新 header 记入日志前检查其压力。它直接使用 `compactPressure`，因为 `compactIfNeeded` 读取的是已提交的 header；两条路径都通过 `summarize()` 生成摘要。
 
-当 `auto: true` 时，串行 `agent/pre-step` listener 会在请求派生前检查压力：它通过 `ctx.tokenMeter` 为最新持久路由请求 envelope 定价，当压力越过路由模型的阈值时，先剪枝，再在保留已定价近期尾部的同时摘要最旧的平衡范围。每个选定范围都从第一个不是 `system/message` 的 surface 节点开始，因此位于 surface 节点 0 的系统提示词永不会被遮蔽；由历史内提示词更新追加的后续 `system/message` 是普通历史，范围可以遮蔽它，agent loop（智能体循环）的投影随后会在二者文本不同时用当前提示词替换节点 0（[决策规则](../../core/agent-loop/README.zh.md#understand-the-implementation)）。`agent/request-error` listener 响应提供方确认的 `CONTEXT_WINDOW_EXCEEDED`：它绕过常规阈值与保留策略，尝试一次最大平衡头部缩减，并且只在表层替换 generation 前进后才授权重试。取消全程保持最终决定权。
+当 `auto: true` 时，串行 `agent/pre-step` listener 会在请求派生前检查压力：它通过 `ctx.tokenMeter` 为最新持久路由请求 envelope 定价，当压力越过路由模型的阈值时，先剪枝，再在保留已定价近期尾部的同时摘要最旧的平衡范围。每个选定范围都从第一个不是 `system/message` 的 surface 节点开始，因此位于 surface 节点 0 的系统提示词永不会被遮蔽；由历史内提示词更新追加的后续 `system/message` 是普通历史，范围可以遮蔽它，agent loop（智能体循环）的投影随后会在二者文本不同时用当前提示词替换节点 0（[决策规则](../../core/agent-loop/README.zh.md#understand-the-implementation)）。`agent/request-error` listener 响应提供方确认的 `CONTEXT_WINDOW_EXCEEDED`：它绕过常规阈值与保留策略，尝试一次最大平衡头部缩减，并且只在表层替换 generation 前进且重建后的 token 估算下降时授权重试。所选适配器随后会在网络 I/O 前执行正常的接纳检查。即使先前的剪枝阶段已改变表层，恢复失败仍会保留原始请求错误。取消全程保持最终决定权。
 
 压力策略从拥有持久路由的适配器解析容量。容量缺失、输出预留与余量耗尽窗口，或保留预算不小于阈值时，手动压力路径会抛出目标特定配置错误。`agent/pre-step` listener 会对该精确目标警告一次，并继续本轮；提供方确认溢出后的恢复仍然可用。模型切换检查则以 `MODEL_SWITCH_COMPACTION_FAILED` 拒绝请求，容量或适配器查找失败时亦如此。
 
@@ -130,7 +130,7 @@ kind: "package-reference"
 
 ### 区域事务
 
-摘要请求失败后，后端先检查取消和选区稳定性，再触发同步的 `compaction/summary-error`。恢复监听器必须先记录持久的输入变更，才能请求重试。后端重新派生所选消息，更新 token 价格及判断摘要是否缩短输入的基准。图片省略插件负责选图；后续摘要失败或取消后，已经记录的省略仍然有效。
+摘要请求失败后，后端先检查取消和选区稳定性，再触发同步的 `compaction/summary-error`。恢复监听器必须先记录持久的输入变更，才能请求重试。后端重新派生所选消息，更新 token 价格及判断摘要是否缩短输入的基准。图片省略插件负责选图；后续摘要失败或取消后，已经记录的省略仍然有效。达到输出上限的压力摘要并不完整，因此自动 pre-step 处理会报告 `CONTEXT_WINDOW_EXCEEDED`，并在会话请求前停止。
 
 事务验证表层范围与持久锁，追加 `compaction/start`，通过钩子生成摘要，重新验证稳定性（自动调用要求整个表层、手动调用只要求所选范围），拒绝不缩小源内容的摘要，追加 `compaction/summary` 与替换 `user/message`，并恰好进行一次 `compaction/end` 尝试。活动的未匹配 start 是持久锁：位于较新 `session/end-seed` 之前的未匹配标记是先前生命周期留下的陈旧证据，不会阻塞；位于该边界之后的标记报告 `busy`。闭合失败会有意留下阻塞性的未匹配标记。完成清理与持久化后，取消仍具有最终决定权。
 
@@ -175,7 +175,7 @@ kind: "package-reference"
 
 #### 模型看到的内容
 
-成功步骤越过阈值后，如果已加载可选修剪器，超大工具结果会先被改写。如果仍需摘要，下一个请求会收到下方检查点前导、一个空行、`<compacted-summary>`、根据数据生成的摘要以及 `</compacted-summary>`。溢出恢复会根据使表层前进的任何替换重建立即重试。检查点会替换已选较早范围，后面跟随已保留的近期单元。
+成功步骤越过阈值后，如果已加载可选修剪器，超大工具结果会先被改写。如果仍需摘要，下一个请求会收到下方检查点前导、一个空行、`<compacted-summary>`、根据数据生成的摘要以及 `</compacted-summary>`。只有替换降低了估算请求预算，溢出恢复才会重建立刻重试。检查点会替换已选较早范围，后面跟随已保留的近期单元。
 
 ##### 会话检查点前导
 

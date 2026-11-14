@@ -27,6 +27,27 @@ function flattenText(message: RequestMessage): string {
     .join('')
 }
 
+/** Read an extensible source discriminant without importing its producer package. */
+function sourceKind(source: Message['source']): string {
+  return source.kind
+}
+
+/**
+ * Read the latest compaction revision represented by one projected request history.
+ * @param messages - harness request history in model-visible order.
+ * @returns the latest checkpoint identity, or undefined before any compaction.
+ */
+export function contextRevisionOf(messages: readonly RequestMessage[]): string | undefined {
+  let revision: string | undefined
+  for (const message of messages) {
+    if (message.source === undefined || sourceKind(message.source) !== 'compact-checkpoint') continue
+    if ('compactionId' in message.source && typeof message.source.compactionId === 'string') {
+      revision = message.source.compactionId
+    }
+  }
+  return revision
+}
+
 
 /** Recover the pi-ai toolResult message for one harness tool-role message. */
 function toolResultOf(
@@ -204,9 +225,10 @@ function appendAssistant(
   message: Extract<Message, { role: 'assistant' }>,
   messages: PiMessage[],
   toolNames: Map<ToolCallId, string>,
+  contextRevision: string | undefined,
   onReplayDegrade?: (reason: string) => void,
 ): void {
-  const assistant = toPiAssistant(message, onReplayDegrade)
+  const assistant = toPiAssistant(message, onReplayDegrade, contextRevision)
   for (const block of assistant.content) {
     if (block.type === 'toolCall') toolNames.set(brandString<ToolCallId>(block.id), block.name)
   }
@@ -220,6 +242,7 @@ function appendSharedHistory(
   messages: PiMessage[],
   toolNames: Map<ToolCallId, string>,
   supportsMidConvoSystemMessages: boolean,
+  contextRevision: string | undefined,
   onReplayDegrade?: (reason: string) => void,
 ): boolean {
   if (message.role === 'developer') {
@@ -239,7 +262,7 @@ function appendSharedHistory(
     return true
   }
   if (message.role === 'assistant') {
-    appendAssistant(message, messages, toolNames, onReplayDegrade)
+    appendAssistant(message, messages, toolNames, contextRevision, onReplayDegrade)
     return true
   }
   return false
@@ -252,13 +275,16 @@ function textOnlyContext(
 ): PiContext {
   assertSupportedHistory(options.messages)
   const split = splitSystemPrompt(options)
+  const contextRevision = contextRevisionOf(options.messages)
   const toolNames = new Map<ToolCallId, string>()
   const messages: PiMessage[] = []
   for (const message of split.messages) {
     if (contentHasImage(message.content)) {
       throw new LlmError('pi-ai image conversion requires the durable attachment service', 'UNSUPPORTED_CONTENT')
     }
-    if (appendSharedHistory(message, options, messages, toolNames, supportsMidConvoSystemMessages, onReplayDegrade)) continue
+    if (appendSharedHistory(
+      message, options, messages, toolNames, supportsMidConvoSystemMessages, contextRevision, onReplayDegrade,
+    )) continue
     if (message.role === 'tool') {
       messages.push(toolResultOf(message, toolNames, flattenText(message)))
       continue
@@ -362,6 +388,7 @@ async function toPiContextWithImages(
   }
   assertSupportedHistory(options.messages)
   const split = splitSystemPrompt(options)
+  const contextRevision = contextRevisionOf(options.messages)
   const requestImages = await prepareRequestImages(split.messages, attachments, requestImagePolicy, options.signal)
   const offloadImages = requiredImageOffload(
     split.messages,
@@ -388,7 +415,9 @@ async function toPiContextWithImages(
   const messages: PiMessage[] = []
 
   for (const message of exactMessages) {
-    if (appendSharedHistory(message, options, messages, toolNames, supportsMidConvoSystemMessages, onReplayDegrade)) continue
+    if (appendSharedHistory(
+      message, options, messages, toolNames, supportsMidConvoSystemMessages, contextRevision, onReplayDegrade,
+    )) continue
     if (message.role === 'tool') {
       messages.push(toolResultOf(message, toolNames, userContent(message.content, requestImages, resolveImageAccess)))
       continue

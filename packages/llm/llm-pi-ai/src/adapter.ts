@@ -66,7 +66,7 @@ import { bundledBadge } from './bundled-catalog.ts'
 import { catalogModels, catalogProvider } from './catalog.ts'
 import { catalogAlternateProfile } from './config.ts'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
-import { requestImageTarget, toPiContext } from './context.ts'
+import { contextRevisionOf, requestImageTarget, toPiContext } from './context.ts'
 import { assertUsefulContextCapacity } from './context-budget.ts'
 import { conversationUpdates, createModels, getSupportedThinkingLevels } from './models.ts'
 import { selectPeakWindow } from './peak.ts'
@@ -677,7 +677,13 @@ export class PiAiAdapter extends LlmAdapter {
         signal: watchdog.signal,
         headers: requestHeaders(profile.headers, options, model.baseUrl, this.config.prepareHeaders),
       })
-      const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id)[Symbol.asyncIterator]()
+      const iterator = toStreamChunks(
+        events,
+        model.contextWindow,
+        options.signal,
+        model.id,
+        contextRevisionOf(request.messages),
+      )[Symbol.asyncIterator]()
       let exhausted = false
       try {
         while (true) {
