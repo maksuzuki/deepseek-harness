@@ -90,11 +90,13 @@ export const Config: z<Config> = z.object({
     provider: z.string(),
     model: z.string(),
     reasoningEffort: z.string().min(1) as z<ReasoningEffortId | undefined>,
+    thinking: z.union([z.boolean(), z.const(undefined)]),
     maxTokens: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER),
   }).default(undefined as unknown as {
     provider: string
     model: string
     reasoningEffort: ReasoningEffortId
+    thinking: boolean
     maxTokens: number
   }),
   agentPreset: z.string().min(1),

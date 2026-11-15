@@ -378,6 +378,11 @@ async function run(ctx: Context, config: Config, io: HeadlessIo): Promise<void> 
         && previous.reasoningEffort !== undefined) {
         configured.reasoningEffort = previous.reasoningEffort
       }
+      if (configured.thinking === undefined && previous !== undefined
+        && previous.provider === configured.provider && previous.model === configured.model
+        && previous.thinking !== undefined) {
+        configured.thinking = previous.thinking
+      }
       agent.model.select(configured)
     }
     installModelSelection(agentCtx)

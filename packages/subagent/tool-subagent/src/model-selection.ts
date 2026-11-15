@@ -130,6 +130,7 @@ export function requestedAgentOptions(
     model: request.model,
     // Explicit undefined also clears compatible parent effort during child-option merging.
     reasoningEffort: request.reasoning_effort === undefined ? undefined : brandString<ReasoningEffortId>(request.reasoning_effort),
+    thinking: undefined,
   }
 }
 
@@ -165,6 +166,7 @@ export function hasConfiguredLlmSelection(options: AgentOptions | undefined): bo
   return options?.provider !== undefined
     || options?.model !== undefined
     || options?.reasoningEffort !== undefined
+    || options?.thinking !== undefined
 }
 
 /**
@@ -192,9 +194,12 @@ export async function preflightChildLlmRoute(
   const routeChanged = provider !== parentOptions.provider || model !== parentOptions.model
   const reasoningEffort = requested?.reasoningEffort
     ?? (inheritParentReasoningEffort && !routeChanged ? parentOptions.reasoningEffort : undefined)
+  const thinking = requested?.thinking
+    ?? (inheritParentReasoningEffort && !routeChanged ? parentOptions.thinking : undefined)
   await llm.resolveCallConfig({
     provider,
     model,
     ...reasoningEffort === undefined ? {} : { reasoningEffort },
+    ...thinking === undefined ? {} : { thinking },
   }, signal)
 }

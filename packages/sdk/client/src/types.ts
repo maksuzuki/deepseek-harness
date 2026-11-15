@@ -64,6 +64,8 @@ export interface DeepSeekHarnessOptions extends HarnessClientOptions {
   model?: string
   /** Adapter-owned reasoning effort for the selected provider/model route. */
   reasoningEffort?: ReasoningEffortId
+  /** Explicit boolean Thinking for the selected provider/model route. */
+  thinking?: boolean
   /** Maximum output tokens for each conversation-model request. */
   maxTokens?: number
   /** Enable server approval requests; install client.onRequest() after client.start() and before harness.start(). */

@@ -316,6 +316,7 @@ describe('DeepSeekHarness', () => {
       provider: 'custom-provider',
       model: 'custom-model',
       reasoningEffort: brandString<ReasoningEffortId>('max'),
+      thinking: false,
       maxTokens: 4096,
       approvalRequests: true,
     })
@@ -329,6 +330,7 @@ describe('DeepSeekHarness', () => {
       provider: 'custom-provider',
       model: 'custom-model',
       reasoningEffort: 'max',
+      thinking: false,
       maxTokens: 4096,
       approvalRequests: true,
     }])

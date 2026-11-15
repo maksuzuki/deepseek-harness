@@ -472,6 +472,19 @@ describe('dsh-tool-subagent model selection', () => {
     expect(starts).toBe(0)
   })
 
+  it('rejects configured boolean Thinking on an unsupported child route before creation', async () => {
+    let starts = 0
+    const ctx = await setup({
+      provider: 'mock',
+      agentOptions: { provider: 'alpha', model: 'parent-model', thinking: false },
+    }, { onStart: () => { starts += 1 } })
+    ctx.llm.registerAdapter(['alpha'], new MockAdapter([]))
+    const result = await callSubagent(ctx, { description: 'unsupported thinking', prompt: 'work' })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('does not support boolean Thinking')
+    expect(starts).toBe(0)
+  })
+
   it('validates a configured effort before child creation', async () => {
     let starts = 0
     const ctx = await setup({

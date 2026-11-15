@@ -341,6 +341,7 @@ export class SubagentManager {
       const agentProvider = agentOptions.provider
       const agentModel = agentOptions.model
       const agentReasoningEffort = agentOptions.reasoningEffort
+      const agentThinking = agentOptions.thinking
       const descriptor = snapshotSubagentDescriptor({
         mode: 'continuable',
         provider: spec.provider,
@@ -348,6 +349,7 @@ export class SubagentManager {
         ...agentProvider !== undefined ? { agentProvider } : {},
         ...agentModel !== undefined ? { agentModel } : {},
         ...agentReasoningEffort !== undefined ? { agentReasoningEffort } : {},
+        ...agentThinking !== undefined ? { agentThinking } : {},
       })
       // Capture before the first await: a later parent switch belongs to the
       // parent's future, not to this child.
@@ -1255,6 +1257,7 @@ export class SubagentManager {
             ...descriptor.agentReasoningEffort !== undefined
               ? { reasoningEffort: brandString<ReasoningEffortId>(descriptor.agentReasoningEffort) }
               : {},
+            ...descriptor.agentThinking !== undefined ? { thinking: descriptor.agentThinking } : {},
           },
           composition: {
             agentPreset: agentPreset ?? undefined,

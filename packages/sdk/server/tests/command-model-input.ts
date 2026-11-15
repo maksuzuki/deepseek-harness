@@ -20,6 +20,6 @@ export function modelInput(options: GenerateOptions) {
       }),
     },
     maxTokens: options.maxTokens,
-    reasoningEffort: options.reasoningEffort, temperature: options.temperature, stop: options.stop,
+    reasoningEffort: options.reasoningEffort, thinking: options.thinking, temperature: options.temperature, stop: options.stop,
   })
 }

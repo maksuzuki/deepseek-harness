@@ -151,6 +151,8 @@ providers:
 
 ### 带推理（reasoning）与协议兼容运行
 
+对于接受顶层布尔 `thinking` 的 `openai-completions` 模型，在模型条目中设置 `thinking: true` 或 `thinking: false`。该值同时声明能力和默认值；未选择时使用默认值，Session 中的明确选择覆盖它。其他模型在发送请求前拒绝明确的布尔设置。布尔 Thinking 与 `reasoningEffort` 独立；`off` 仅省略推理参数。
+
 `reasoningEfforts` 声明模型可选择的 thinking 等级：每个键都是选择器提供的等级，其值是分派时在协议中发送的拼写，因此 `max: ultra` 可以为拥有自有词汇的网关重命名等级。省略该字段时保留已安装目录条目的能力；`false` 声明非推理模型。对于 pi-ai 无法识别的端点，`compat` 开关重塑请求——哪个角色携带系统提示词、哪个字段限制输出、thinking 等级如何传递——可逐路由、逐模型配置。条目与已安装目录都没有尺寸的模型，会采用路由的 `defaultContextWindow` 与 `defaultMaxTokens` 回退值。
 
 确切模型元数据将 `reasoning.efforts` 按可选强度从低到高排列。配置函数可从该列表中选择，再由 `prepareCall()` 校验具体强度。适配器只接收解析后的控制项。选择 `off` 不保证禁用推理：以省略推理字段表达该值的协议会沿用网关默认行为。所选等级下产生的推理 token 都计入该请求的输出上限。
@@ -249,7 +251,7 @@ git add packages/llm/llm-pi-ai/src/provider-data.generated.ts
 
 完成的响应还会记录经过校验的提供方 token 计数，以及作为 `contextRevision` 的最新压缩检查点。后续请求只有在最新检查点匹配时才重用这些计数；检查点之前的计数归零。所有提供方在重用计数前，还会比较 `usagePrefixDigest` 与重建后的转换上下文前缀和实际模型。Anthropic 另用 `prefixDigest` 决定能否回放已签名 thinking。缺少 `usagePrefixDigest` 的回放状态仍可读取，但不贡献先前 usage；计数或修订元数据损坏时，该 assistant 消息降级为提供方无关内容。
 
-Anthropic 可以将每个已签名 thinking 块绑定到生成它时的请求前缀：系统提示词、工具和此前的消息。执行此检查的账户和请求会拒绝回放过期块的请求。因此，Anthropic Messages 响应会将其请求上下文的 SHA-256 摘要记录为 `prefixDigest`。后续 Anthropic Messages 请求会在每个回放响应之前重新计算重建前缀的摘要；摘要不同时，例如在压缩、工具结果裁剪、图片卸载或系统提示词或工具变化之后，省略该响应的已签名 thinking 与 redacted thinking。不含 `prefixDigest` 的回放状态（在此检查出现之前写入）按同样方式处理，从而修复已经失败的对话。文本、工具调用和未签名 thinking 保留；只含已签名 thinking 的响应不再发送。已省略的 thinking 在后续请求中保持省略。手动思考要求工具轮次的最后一个 assistant 轮次以 thinking 块开头，因此当请求启用 thinking 且模型的 compat 未设置 `forceAdaptiveThinking` 时，请求以工具结果延续的工具轮次对应的 assistant 消息会保留其 thinking。
+Anthropic 可以将每个已签名 thinking 块绑定到生成它时的请求前缀：系统提示词、工具和此前的消息。执行此检查的账户和请求会拒绝回放过期块的请求。因此，Anthropic Messages 响应会将其请求上下文的 SHA-256 摘要记录为 `prefixDigest`。后续发往其他协议的请求会省略已签名的 Anthropic Thinking；Anthropic Messages 请求会在每个回放响应之前重新计算重建前缀的摘要；摘要不同时，例如在压缩、工具结果裁剪、图片卸载或系统提示词或工具变化之后，省略该响应的已签名 thinking 与 redacted thinking。不含 `prefixDigest` 的回放状态（在此检查出现之前写入）按同样方式处理，从而修复已经失败的对话。文本、工具调用和未签名 thinking 保留；只含已签名 thinking 的响应不再发送。已省略的 thinking 在后续请求中保持省略。手动思考要求工具轮次的最后一个 assistant 轮次以 thinking 块开头，因此当请求启用 thinking 且模型的 compat 未设置 `forceAdaptiveThinking` 时，请求以工具结果延续的工具轮次对应的 assistant 消息会保留其 thinking。
 
 </details>
 

@@ -901,6 +901,36 @@ describe('headless runner', () => {
     }
   })
 
+  it.each([
+    { savedModel: 'test-model', thinking: false, expected: false },
+    { savedModel: 'test-model', thinking: true, expected: true },
+    { savedModel: 'other-model', thinking: false, expected: undefined },
+  ])('restores boolean Thinking only for the declared route ($savedModel, $thinking)', async ({ savedModel, thinking, expected }) => {
+    const test = await bench({
+      afterPrompt(session, message, agent) {
+        expect(agent.model.current()).toEqual({
+          provider: 'test-provider', model: 'test-model',
+          ...expected === undefined ? {} : { thinking: expected },
+        })
+        appendTurn(session, 1, message, 'resumed answer', true)
+      },
+    }, {
+      sessionId: 'session-thinking',
+      observe: () => Promise.resolve({
+        header: { cwd: process.cwd(), origin: 'user' },
+        events: [],
+        [Symbol.dispose]() {},
+      }),
+    })
+    try {
+      const session = test.ctx.sessions.create(brandString<SessionId>('session-thinking'), { meta: { cwd: process.cwd() } })
+      session.append('model/selection', { provider: 'test-provider', model: savedModel, thinking })
+      expect(await test.run()).toMatchObject({ code: 0, out: 'resumed answer\n', err: '' })
+    } finally {
+      await test.ctx.fiber.dispose()
+    }
+  })
+
   it('rejects a persisted Session recorded in another working directory', async () => {
     const test = await bench({ afterPrompt: () => {} }, {
       sessionId: 'session-exact',

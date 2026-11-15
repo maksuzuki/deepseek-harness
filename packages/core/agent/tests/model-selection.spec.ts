@@ -128,6 +128,29 @@ describe('Session model selection', () => {
     expect(h.current()).toEqual({ ...selected, reasoningEffort: 'low' })
   })
 
+  it('persists explicit thinking across reload and omits an adapter default', async () => {
+    const h = await harness()
+    const selected = { provider: 'beta', model: 'b1', thinking: true }
+    h.record(selected)
+    expect(h.current()).toEqual(selected)
+    const restored = Session.create(brandString<SessionId>('restored-thinking'), h.session.snapshotEvents())
+    const projection = await h.ctx.sessionProjections.register(modelSelectionProjectionDefinition)
+    expect(new AgentModel(() => projection.stateOf(restored), restored, {}).current()).toEqual(selected)
+
+    h.record({ ...selected, thinking: false })
+    const restoredOff = Session.create(brandString<SessionId>('restored-thinking-off'), h.session.snapshotEvents())
+    expect(new AgentModel(() => projection.stateOf(restoredOff), restoredOff, {}).current())
+      .toEqual({ ...selected, thinking: false })
+
+    const defaulted = await harness()
+    const route = { provider: 'beta', model: 'b1' }
+    defaulted.record(route)
+    defaulted.header({ ...route, thinking: false }, { thinking: true })
+    expect(defaulted.current()).toEqual(route)
+    defaulted.header({ ...route, thinking: true })
+    expect(defaulted.current()).toEqual(selected)
+  })
+
   it('reuses fold state for duplicate recorded selections and unrelated events', async () => {
     const h = await harness()
     const selected = { provider: 'beta', model: 'b1' }
@@ -146,6 +169,15 @@ describe('Session model selection', () => {
     expect(h.session.snapshotEvents()).toHaveLength(2)
     h.record(INITIAL)
     expect(h.session.snapshotEvents()).toHaveLength(2)
+  })
+
+  it('replaces boolean thinking on model switch without mapping reasoning effort', async () => {
+    const h = await harness()
+    h.record({ ...INITIAL, thinking: true })
+    h.record({ provider: 'beta', model: 'b1', thinking: false, reasoningEffort: brandString<ReasoningEffortId>('high') })
+    expect(h.current()).toEqual({
+      provider: 'beta', model: 'b1', thinking: false, reasoningEffort: 'high',
+    })
   })
 })
 

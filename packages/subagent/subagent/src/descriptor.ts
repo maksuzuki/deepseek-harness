@@ -8,7 +8,9 @@
  * The descriptor deliberately snapshots explicit fields rather than the
  * merge-extensible `AgentOptions` object: an unrelated extension value cannot
  * make continuation fail merely because it is not JSON, and later composition
- * inputs require a deliberate {@link SUBAGENT_DESCRIPTOR_VERSION} change. It
+ * inputs require a deliberate {@link SUBAGENT_DESCRIPTOR_VERSION} change. The reader
+ * accepts the immediately preceding version, which the writer retains when
+ * boolean Thinking is absent. It
  * omits `subagentDepth` — cold resume trusts the persisted header's
  * `delegationDepth` as the monotone floor — and `outputSchema`, which belongs
  * to one activation's result contract rather than durable child composition.
@@ -41,11 +43,13 @@ declare module '@deepseek-ai/dsh-session/types' {
 
 /**
  * The current descriptor format version, stamped into every appended
- * `subagent/descriptor` event and required verbatim by {@link foldSubagentDescriptor}.
- * Supporting another composition input is a deliberate version change, never
- * an implicit extra field.
+ * `subagent/descriptor` event when boolean Thinking is present. The fold also
+ * accepts version 3 records, which remain the writer output without Thinking.
+ * Supporting another composition input is a deliberate
+ * version change, never an implicit extra field.
  */
-export const SUBAGENT_DESCRIPTOR_VERSION = 3
+export const SUBAGENT_DESCRIPTOR_VERSION = 4
+const PREVIOUS_DESCRIPTOR_VERSION = 3
 
 /** Fields shared by every supported `subagent/descriptor` payload. */
 interface SubagentDescriptorBase {
@@ -79,6 +83,8 @@ export interface ContinuableSubagentDescriptorData extends SubagentDescriptorBas
   readonly agentModel?: string
   /** Resolved child `agentOptions.reasoningEffort`, when one was declared. */
   readonly agentReasoningEffort?: ReasoningEffortId
+  /** Resolved child boolean Thinking selection, including explicit false. */
+  readonly agentThinking?: boolean
   /** Per-child persona that shadows the deployment persona on resume. */
   readonly persona?: string
   /** Child tool scoping reapplied on resume. */
@@ -105,6 +111,7 @@ const CONTINUABLE_DESCRIPTOR_KEYS = new Set([
   'agentProvider',
   'agentModel',
   'agentReasoningEffort',
+  'agentThinking',
   'persona',
   'toolFilter',
 ])
@@ -173,7 +180,7 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
   if (typeof version !== 'number') {
     throw new Error('persisted subagent descriptor version must be a number')
   }
-  if (version !== SUBAGENT_DESCRIPTOR_VERSION) return undefined
+  if (version !== SUBAGENT_DESCRIPTOR_VERSION && version !== PREVIOUS_DESCRIPTOR_VERSION) return undefined
 
   const mode = value['mode']
   if (mode !== 'one-shot' && mode !== 'continuable') {
@@ -181,7 +188,10 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
   }
   assertKnownKeys(
     value,
-    mode === 'one-shot' ? ONE_SHOT_DESCRIPTOR_KEYS : CONTINUABLE_DESCRIPTOR_KEYS,
+    mode === 'one-shot' ? ONE_SHOT_DESCRIPTOR_KEYS
+      : version === PREVIOUS_DESCRIPTOR_VERSION
+        ? new Set([...CONTINUABLE_DESCRIPTOR_KEYS].filter(key => key !== 'agentThinking'))
+        : CONTINUABLE_DESCRIPTOR_KEYS,
     'payload',
   )
   const provider = value['provider']
@@ -191,7 +201,7 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
   if (mode === 'one-shot') {
     const label = optionalString(value, 'label')
     return {
-      version: SUBAGENT_DESCRIPTOR_VERSION,
+      version,
       mode,
       provider,
       ...label !== undefined ? { label } : {},
@@ -204,18 +214,23 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
   const agentProvider = optionalString(value, 'agentProvider')
   const agentModel = optionalString(value, 'agentModel')
   const agentReasoningEffort = optionalString(value, 'agentReasoningEffort') as ReasoningEffortId | undefined
+  const agentThinking = value['agentThinking']
+  if (agentThinking !== undefined && typeof agentThinking !== 'boolean') {
+    throw new Error('persisted subagent descriptor agentThinking must be a boolean')
+  }
   const persona = optionalString(value, 'persona')
   const toolFilter = Object.hasOwn(value, 'toolFilter')
     ? parseToolFilter(value['toolFilter'])
     : undefined
   return {
-    version: SUBAGENT_DESCRIPTOR_VERSION,
+    version,
     mode,
     provider,
     label,
     ...agentProvider !== undefined ? { agentProvider } : {},
     ...agentModel !== undefined ? { agentModel } : {},
     ...agentReasoningEffort !== undefined ? { agentReasoningEffort } : {},
+    ...agentThinking !== undefined ? { agentThinking } : {},
     ...persona !== undefined ? { persona } : {},
     ...toolFilter !== undefined ? { toolFilter } : {},
   }
@@ -231,13 +246,14 @@ export function snapshotSubagentDescriptor(
   input: ContinuableSubagentDescriptorInput,
 ): ContinuableSubagentDescriptorData {
   const candidate: ContinuableSubagentDescriptorData = {
-    version: SUBAGENT_DESCRIPTOR_VERSION,
+    version: input.agentThinking === undefined ? PREVIOUS_DESCRIPTOR_VERSION : SUBAGENT_DESCRIPTOR_VERSION,
     mode: input.mode,
     provider: input.provider,
     label: input.label,
     ...input.agentProvider !== undefined ? { agentProvider: input.agentProvider } : {},
     ...input.agentModel !== undefined ? { agentModel: input.agentModel } : {},
     ...input.agentReasoningEffort !== undefined ? { agentReasoningEffort: input.agentReasoningEffort } : {},
+    ...input.agentThinking !== undefined ? { agentThinking: input.agentThinking } : {},
     ...input.persona !== undefined ? { persona: input.persona } : {},
     ...input.toolFilter !== undefined ? { toolFilter: input.toolFilter } : {},
   }
@@ -255,7 +271,7 @@ export function snapshotSubagentDescriptor(
  * composition.
  * @param events - the loaded child session events.
  * @returns the descriptor, or `undefined` when the log has none or its
- *   version is not {@link SUBAGENT_DESCRIPTOR_VERSION} (the child cannot be
+ *   version is neither current nor the immediately preceding version (the child cannot be
  *   classified by this runtime).
  * @throws when a current-version persisted payload does not match its complete
  *   declared schema.

@@ -105,13 +105,14 @@ const SDK_START_CAPABILITIES: SubagentCapabilities = Object.freeze({
 /** Merge the request's supported route fields over this provider instance's defaults. */
 function resolveSdkRoute(config: ResolvedConfig, requested: AgentOptions | undefined): Pick<
   SdkRunSpec,
-  'provider' | 'model' | 'reasoningEffort' | 'maxTokens'
+  'provider' | 'model' | 'reasoningEffort' | 'thinking' | 'maxTokens'
 > {
   const maxTokens = requested?.maxTokens ?? config.maxTokens
   return {
     provider: requested?.provider ?? config.provider,
     model: requested?.model ?? config.model,
     ...requested?.reasoningEffort === undefined ? {} : { reasoningEffort: requested.reasoningEffort },
+    ...requested?.thinking === undefined ? {} : { thinking: requested.thinking },
     ...maxTokens === undefined ? {} : { maxTokens },
   }
 }

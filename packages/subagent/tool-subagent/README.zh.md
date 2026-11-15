@@ -48,7 +48,7 @@ kind: "package-reference"
 | `toolName` | `subagent` | 面向模型的工具名称；每个已加载实例必须不同 |
 | `modelSelection` | `false` | 公开可选子级路由字段；要求提供方支持 `agentOptions` |
 | `modelDiscovery` | `false` | 注册 `list_subagent_models`；每个工具作用域仅在一个实例上启用 |
-| `agentOptions` | — | 配置的子级 `provider`、`model`、适配器所有的 `reasoningEffort` 与正整数 `maxTokens` 默认值；要求提供方支持 `agentOptions`，并会覆盖提供方持有的路由默认值 |
+| `agentOptions` | — | 配置的子级 `provider`、`model`、适配器自有的 `reasoningEffort`、明确的布尔 `thinking` 与正整数 `maxTokens` 默认值；要求提供方支持 `agentOptions`，并会覆盖提供方持有的路由默认值 |
 | `agentPreset` | — | 独立子级 preset 的默认 id；要求进程内 spawn |
 | `allowedAgentPresets` | — | 非空 preset-id 白名单，作为模型可选的 `agent_preset` 枚举；与 `agentPreset` 同时配置时必须包含后者 |
 | `maxDepth` | Host 设置（`1`） | 绝对委派深度上限（`0` 禁止委派）；`'provider-managed'` 不向进程外提供方发送上限 |

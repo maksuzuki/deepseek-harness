@@ -539,7 +539,7 @@ describe('subagent descriptors', () => {
       .toEqual({ ...minimal, label: 'child work' })
     expect(snapshotSubagentDescriptor({
       mode: 'continuable', provider: 'spawn', label: 'child',
-    })).toEqual({ version: SUBAGENT_DESCRIPTOR_VERSION, mode: 'continuable', provider: 'spawn', label: 'child' })
+    })).toEqual({ version: 3, mode: 'continuable', provider: 'spawn', label: 'child' })
     const complete = {
       version: SUBAGENT_DESCRIPTOR_VERSION,
       mode: 'continuable' as const,
@@ -548,6 +548,7 @@ describe('subagent descriptors', () => {
       agentProvider: 'deepseek',
       agentModel: 'chat',
       agentReasoningEffort: brandString<ReasoningEffortId>('high'),
+      agentThinking: false,
       persona: 'reviewer',
       toolFilter: { allow: ['read'], deny: ['bash'] },
     }
@@ -558,10 +559,16 @@ describe('subagent descriptors', () => {
       agentProvider: complete.agentProvider,
       agentModel: complete.agentModel,
       agentReasoningEffort: complete.agentReasoningEffort,
+      agentThinking: complete.agentThinking,
       persona: complete.persona,
       toolFilter: complete.toolFilter,
     })).toEqual(complete)
     expect(foldSubagentDescriptor([event(complete)])).toEqual(complete)
+    const previous = { ...complete, version: 3 }
+    delete (previous as { agentThinking?: boolean }).agentThinking
+    expect(foldSubagentDescriptor([event(previous)])).toEqual(previous)
+    expect(() => foldSubagentDescriptor([event({ ...complete, version: 3 })]))
+      .toThrow('unknown field "agentThinking"')
     expect(foldSubagentDescriptor([
       event({
         version: SUBAGENT_DESCRIPTOR_VERSION,

@@ -113,6 +113,23 @@ describe('Anthropic thinking prefix binding', () => {
     expect(noOmission).not.toHaveBeenCalled()
   })
 
+  it('drops signed Anthropic thinking and old usage after switching to boolean Thinking OFF', () => {
+    const assistant: PiAssistantMessage = {
+      role: 'assistant', api: 'anthropic-messages', provider: 'anthropic', model: 'model',
+      content: [{ type: 'text', text: 'answer' }, { type: 'thinking', thinking: 'private', thinkingSignature: 'signed' }],
+      usage: { input: 10_000, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 10_001,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      stopReason: 'stop', timestamp: 0,
+    }
+    const result = bindThinkingToPrefix(
+      { systemPrompt: 'prompt', messages: [assistant] }, 'openai-completions', new Map(), false,
+      () => {}, new Map(), { provider: 'boolean-gateway', model: 'thinking-off' },
+    )
+    expect(result.context.messages[0]).toMatchObject({
+      content: [{ type: 'text', text: 'answer' }], usage: { totalTokens: 0 },
+    })
+  })
+
   it('invalidates OpenAI usage when prompt, tools, or model change without a checkpoint', () => {
     const openaiRoute = { provider: 'openai', model: 'model' }
     const message: PiAssistantMessage = {

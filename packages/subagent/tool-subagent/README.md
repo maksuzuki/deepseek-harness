@@ -48,7 +48,7 @@ Load the subagent service, an in-process or remote backend, and this tool; then 
 | `toolName` | `subagent` | Model-facing tool name; distinct for every loaded instance |
 | `modelSelection` | `false` | Expose optional child route fields; requires provider `agentOptions` support |
 | `modelDiscovery` | `false` | Register `list_subagent_models`; enable on one instance per tool scope |
-| `agentOptions` | — | Configured child `provider`, `model`, adapter-owned `reasoningEffort`, and positive `maxTokens` defaults; requires provider `agentOptions` support and overlays any provider-owned route defaults |
+| `agentOptions` | — | Configured child `provider`, `model`, adapter-owned `reasoningEffort`, explicit boolean `thinking`, and positive `maxTokens` defaults; requires provider `agentOptions` support and overlays any provider-owned route defaults |
 | `agentPreset` | — | Default independent child preset id; requires in-process spawn |
 | `allowedAgentPresets` | — | Non-empty preset-id allowlist exposed as the model's optional `agent_preset` enum; must include `agentPreset` when both are set |
 | `maxDepth` | Host setting (`1`) | Absolute delegation-depth cap (`0` forbids delegation); `'provider-managed'` sends no cap to an out-of-process provider |

@@ -90,10 +90,14 @@ function selectionOf(state: ModelDirectoryState, id: string): ModelSelection | u
       const reasoningEffort = sameRoute
         ? state.current?.reasoningEffort ?? model.reasoning?.defaultEffort
         : model.reasoning?.defaultEffort
+      const thinking = sameRoute
+        ? state.current?.thinking ?? model.thinking?.default
+        : model.thinking?.default
       return {
         provider: group.id,
         model: model.id,
         ...reasoningEffort === undefined ? {} : { reasoningEffort },
+        ...thinking === undefined ? {} : { thinking },
       }
     }
   }

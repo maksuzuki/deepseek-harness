@@ -106,3 +106,29 @@ describe('delegation depth limits', () => {
     }))
   })
 })
+
+
+describe('boolean Thinking delegation', () => {
+  it('inherits explicit false from the parent request and clears it on a route change', () => {
+    const parent = parentAgent()
+    parent.session.append('request/header', {
+      header: { config: { provider: 'parent-provider', model: 'parent-model', thinking: false } },
+      reason: 'initial',
+    })
+    expect(resolveChildAgentOptions(parent, undefined, 1).thinking).toBe(false)
+    expect(resolveChildAgentOptions(parent, { model: 'other-model' }, 1).thinking).toBeUndefined()
+    expect(resolveChildAgentOptions(parent, { model: 'other-model', thinking: true }, 1).thinking).toBe(true)
+  })
+
+  it('leaves a request-time adapter default unset for the child', () => {
+    const parent = parentAgent()
+    parent.session.append('request/header', {
+      header: {
+        config: { provider: 'parent-provider', model: 'parent-model', thinking: false },
+        adapterDefaults: { thinking: true },
+      },
+      reason: 'initial',
+    })
+    expect(resolveChildAgentOptions(parent, undefined, 1).thinking).toBeUndefined()
+  })
+})

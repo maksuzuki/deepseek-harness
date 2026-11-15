@@ -46,6 +46,8 @@ export interface SdkRunSpec {
   model: string
   /** Optional adapter-owned reasoning effort sent in the child runtime's initialize handshake. */
   reasoningEffort?: ReasoningEffortId
+  /** Explicit boolean Thinking for the child runtime. */
+  thinking?: boolean
   /** Optional per-request output-token cap sent in the child runtime's initialize handshake. */
   maxTokens?: number
   /**
@@ -248,6 +250,7 @@ export async function startSdkRun(request: SubagentStartRequest, spec: SdkRunSpe
     provider: spec.provider,
     model: spec.model,
     ...spec.reasoningEffort === undefined ? {} : { reasoningEffort: spec.reasoningEffort },
+    ...spec.thinking === undefined ? {} : { thinking: spec.thinking },
     ...spec.maxTokens === undefined ? {} : { maxTokens: spec.maxTokens },
   })
 

@@ -226,6 +226,7 @@ describe('dsh-subagent-dsh-sdk provider', () => {
       const ctx = await setup({ FAKE_RECORD_INIT: recordFile }, { maxTokens: 4096 })
       const run = await startExternalActivation(ctx, 'dsh-sdk', request('partial', new AbortController().signal, {
         reasoningEffort: brandString<ReasoningEffortId>('high'),
+        thinking: false,
       }))
       await run.result
       await run.dispose()
@@ -235,6 +236,7 @@ describe('dsh-subagent-dsh-sdk provider', () => {
         provider: 'fake-provider',
         model: 'fake-model',
         reasoningEffort: 'high',
+        thinking: false,
         maxTokens: 4096,
       })
       await ctx.fiber.dispose()

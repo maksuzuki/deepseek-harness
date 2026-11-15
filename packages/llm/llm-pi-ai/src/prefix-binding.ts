@@ -114,8 +114,9 @@ export function bindThinkingToPrefix(
   for (const [index, original] of context.messages.entries()) {
     let message = original
     if (message.role === 'assistant') {
-      const omitThinking = api === PREFIX_BOUND_API && message.api === PREFIX_BOUND_API
-        && index !== kept && prefixDigests.get(message) !== digest && message.content.some(signed)
+      const omitThinking = message.api === PREFIX_BOUND_API
+        && (api !== PREFIX_BOUND_API || index !== kept && prefixDigests.get(message) !== digest)
+        && message.content.some(signed)
       const staleUsage = usageDigests.get(message) !== usageDigest && calculateContextTokens(message.usage) > 0
       if (omitThinking || staleUsage) {
         message = withoutStalePrefixMetadata(message, omitThinking)

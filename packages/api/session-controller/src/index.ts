@@ -334,6 +334,7 @@ export class SessionController extends TypertRemoteService {
     const selection = { provider, model: model.id,
       ...model.reasoning?.defaultEffort === undefined ? {}
         : { reasoningEffort: brandString<ReasoningEffortId>(model.reasoning.defaultEffort) },
+      ...model.thinking === undefined ? {} : { thinking: model.thinking.default },
     }
     await this.ctx.agentDefaultModel.saveSelection(selection)
   }

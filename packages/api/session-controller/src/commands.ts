@@ -174,6 +174,7 @@ export class SessionCommandController {
           ...(request.reasoningEffort === undefined
             ? {}
             : { reasoningEffort: brandString<ReasoningEffortId>(request.reasoningEffort) }),
+          ...request.thinking === undefined ? {} : { thinking: request.thinking },
         }
         await this.ctx.llm.resolveCallConfig(selected)
         agent.model.select(selected)

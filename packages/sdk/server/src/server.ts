@@ -91,6 +91,7 @@ export class HarnessSdkJsonRpcServer {
   private provider = 'deepseek-official'
   private model = 'deepseek-official'
   private reasoningEffort: ReasoningEffortId | undefined
+  private thinking: boolean | undefined
   private maxTokens: number | undefined
   private llmFiber: { dispose(): Promise<void> } | undefined
   private readonly sessions = new Map<string, SessionRecord>()
@@ -220,6 +221,9 @@ export class HarnessSdkJsonRpcServer {
       && (typeof params.reasoningEffort !== 'string' || params.reasoningEffort.length === 0)) {
       throw new TypeError('initialize reasoningEffort must be a non-empty string')
     }
+    if (params.thinking !== undefined && typeof params.thinking !== 'boolean') {
+      throw new TypeError('initialize thinking must be a boolean')
+    }
     if (params.maxTokens !== undefined
       && (!Number.isSafeInteger(params.maxTokens) || params.maxTokens <= 0)) {
       throw new TypeError('initialize maxTokens must be a positive safe integer')
@@ -240,12 +244,14 @@ export class HarnessSdkJsonRpcServer {
       provider,
       model,
       ...reasoningEffort === undefined ? {} : { reasoningEffort },
+      ...params.thinking === undefined ? {} : { thinking: params.thinking },
       ...params.maxTokens === undefined ? {} : { maxTokens: params.maxTokens },
     })
     this.cwd = cwd
     this.provider = provider
     this.model = model
     this.reasoningEffort = reasoningEffort
+    this.thinking = params.thinking
     this.maxTokens = params.maxTokens
     this.approvalRequests = params.approvalRequests === true
     this.userQuestions.enabled = params.capabilities?.userQuestions === true
@@ -573,6 +579,7 @@ export class HarnessSdkJsonRpcServer {
       provider: this.provider,
       model: this.model,
       ...this.reasoningEffort === undefined ? {} : { reasoningEffort: this.reasoningEffort },
+      ...this.thinking === undefined ? {} : { thinking: this.thinking },
       ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
     }
     const handle = await (resume ? this.ctx.agents.resume({
@@ -586,6 +593,11 @@ export class HarnessSdkJsonRpcServer {
           && previous.provider === selection.provider && previous.model === selection.model
           && previous.reasoningEffort !== undefined) {
           selection.reasoningEffort = previous.reasoningEffort
+        }
+        if (selection.thinking === undefined && previous !== undefined
+          && previous.provider === selection.provider && previous.model === selection.model
+          && previous.thinking !== undefined) {
+          selection.thinking = previous.thinking
         }
         agent.model.select(selection)
       },

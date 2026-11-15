@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-为会话未指定模型的新 agent 提供共享默认 provider 和模型。Provider、模型和推理强度都是即时 Config 字段。保存的选择更新当前 profile patch，并用于后续读取；会话级选择由[Agent 模型 API](../agent/README.zh.md) 负责。
+为会话未指定模型的新 agent 提供共享默认 provider 和模型。Provider、模型、推理强度和独立的 boolean Thinking 都是即时 Config 字段。保存的选择更新当前 profile patch，并用于后续读取；会话级选择由[Agent 模型 API](../agent/README.zh.md) 负责。
 
 ## 目录
 
@@ -42,16 +42,18 @@ kind: "package-reference"
 |---|---|---|
 | `provider` | 必填 | 新 agent 使用的已注册提供方路由 |
 | `model` | 必填 | 新 agent 使用的、由提供方持有的模型 id |
+| `reasoningEffort` | 省略 | 可选的由适配器定义的推理强度 |
+| `thinking` | 省略 | 可选且独立的 boolean Thinking 选择 |
 
-生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-agent-default-model) 列出所有接受的字段。`reasoningEffort` 是可选的；保存不含此字段的选择，会从 profile 的完整配置覆盖中移除此字段。
+生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-agent-default-model) 列出所有接受的字段。`reasoningEffort` 与 `thinking` 相互独立且均为可选；保存的完整选择不含其中某字段时，会从 profile 覆盖中移除该字段。
 
 ### 读取与更改默认值
 
-`currentSelection()` 为新创建的 agent 返回一份独立的 `{ provider, model, reasoningEffort? }`；`saveSelection()` 为后续 agent 保存完整选择。
+`currentSelection()` 为新创建的 agent 返回一份独立的 `{ provider, model, reasoningEffort?, thinking? }`；`saveSelection()` 为后续 agent 保存完整选择。
 
 ```text
 const selection = ctx.agentDefaultModel.currentSelection()
-await ctx.agentDefaultModel.saveSelection({ provider, model, reasoningEffort: 'high' })
+await ctx.agentDefaultModel.saveSelection({ provider, model, thinking: true })
 ```
 
 没有配置编辑器时，`saveSelection()` 不执行写入。此服务不验证目录成员资格；发起模型请求的消费者负责可用性诊断。

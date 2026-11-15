@@ -1127,6 +1127,19 @@ describe('HarnessSdkJsonRpcServer', () => {
     }
   })
 
+  it('rejects malformed initialize boolean Thinking before adapter access', async () => {
+    const ctx = new Context()
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+    try {
+      await expect(server.handleRequest('initialize', {
+        cwd: '.', provider: 'deepseek-official', model: 'model', thinking: 'false',
+      })).rejects.toThrow('initialize thinking must be a boolean')
+    } finally {
+      await server.shutdown()
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('rejects an unavailable exact model during initialize', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-invalid-route-'))
     const ctx = await makeHarness(storageDir)

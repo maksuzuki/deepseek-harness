@@ -66,12 +66,14 @@ export function resolveChildDepth(parent: Agent, maxDepth: number | undefined): 
  * @returns detached Agent options for child-option merging.
  */
 export function parentAgentOptionsForDelegation(parent: Agent): AgentOptions {
-  const requestConfig = parent.session.requestHeader()?.config
+  const header = parent.session.requestHeader()
+  const requestConfig = header?.config
   if (requestConfig === undefined) return { ...parent.options }
   const {
     provider: _createdProvider,
     model: _createdModel,
     reasoningEffort: _createdReasoningEffort,
+    thinking: _createdThinking,
     ...createdOptions
   } = parent.options
   return {
@@ -81,6 +83,8 @@ export function parentAgentOptionsForDelegation(parent: Agent): AgentOptions {
     ...requestConfig.reasoningEffort === undefined
       ? {}
       : { reasoningEffort: requestConfig.reasoningEffort },
+    ...requestConfig.thinking === undefined || header?.adapterDefaults?.thinking === true
+      ? {} : { thinking: requestConfig.thinking },
   }
 }
 
@@ -104,17 +108,20 @@ export function resolveChildAgentOptions(
   const parentProvider = parentOptions.provider
   const parentModel = parentOptions.model
   const parentReasoningEffort = parentOptions.reasoningEffort
+  const parentThinking = parentOptions.thinking
   const parentMaxTokens = parentOptions.maxTokens
   const resolved: AgentOptions = {
     ...parentProvider !== undefined ? { provider: parentProvider } : {},
     ...parentModel !== undefined ? { model: parentModel } : {},
     ...parentReasoningEffort !== undefined ? { reasoningEffort: parentReasoningEffort } : {},
+    ...parentThinking !== undefined ? { thinking: parentThinking } : {},
     ...parentMaxTokens !== undefined ? { maxTokens: parentMaxTokens } : {},
     ...requested,
     subagentDepth: childDepth,
   }
   const routeChanged = resolved.provider !== parentProvider || resolved.model !== parentModel
   if (routeChanged && requested?.reasoningEffort === undefined) delete resolved.reasoningEffort
+  if (routeChanged && requested?.thinking === undefined) delete resolved.thinking
   return resolved
 }
 

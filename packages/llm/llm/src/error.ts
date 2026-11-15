@@ -40,6 +40,7 @@ export const LLM_FAILURE_CODES = {
   INVALID_MODEL_INFO: {},
   INVALID_MODEL_MAX_TOKENS: {},
   INVALID_MODEL_REASONING: {},
+  INVALID_MODEL_THINKING: {},
   INVALID_PREPARED_CALL: {},
   INVALID_REPLAY_STATE: {},
   INVALID_REQUEST: {},
@@ -67,6 +68,7 @@ export const LLM_FAILURE_CODES = {
   UNSUPPORTED_CONTENT: {},
   UNSUPPORTED_OPTION: {},
   UNSUPPORTED_REASONING_EFFORT: {},
+  UNSUPPORTED_THINKING: {},
 } as const satisfies Readonly<Record<string, { readonly retryChoice?: true }>>
 
 /** A failure code from {@link LLM_FAILURE_CODES}, or an unclassified provider HTTP status. */
