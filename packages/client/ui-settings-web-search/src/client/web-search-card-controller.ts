@@ -48,6 +48,7 @@ export const WEB_NS = 'web'
 /** Provider ids of the official providers whose settings this page edits. */
 export const PROVIDER_IDS = {
   apiSearch: 'deepseek-search-api',
+  openaiSearch: 'openai-web-search',
   legacySearch: 'deepseek-official',
   localFetch: 'http',
   apiFetch: 'deepseek-fetch-api',
@@ -58,7 +59,7 @@ export const PROVIDER_IDS = {
  * registers them; the Host's own list stays in registration order.
  */
 const MENU_ORDER = {
-  search: [PROVIDER_IDS.apiSearch, PROVIDER_IDS.legacySearch],
+  search: [PROVIDER_IDS.apiSearch, PROVIDER_IDS.openaiSearch, PROVIDER_IDS.legacySearch],
   fetch: [PROVIDER_IDS.localFetch, PROVIDER_IDS.apiFetch],
 } as const satisfies Record<keyof ProviderList, readonly string[]>
 

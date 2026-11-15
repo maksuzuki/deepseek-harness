@@ -1,0 +1,10 @@
+version: 1
+scenario: web-search-openai-unconfigured
+profile: headless
+composition: web-search-openai-unconfigured
+recording: authored
+header:
+  class: web-search-unconfigured
+  pin: true
+  systemPromptSource: web-search-unconfigured
+  toolSchemasSource: web-fetch

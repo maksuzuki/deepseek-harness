@@ -1,0 +1,30 @@
+{
+  "formatVersion": 2,
+  "roots": [
+    {"key":"event:web/openai-search-llm-request","kind":"event","event":"web/openai-search-llm-request","surface":false,"digest":"6121e83c5d0c1f553b76b8d7365d2e054f2686e51bf8bdcc47a86e113788a4a4"}
+  ],
+  "types": [],
+  "nodes": {
+    "0657d3ca5ac4e7bf": {"kind":"primitive","type":"number"},
+    "0c4205180f75b9ee": {"kind":"literal","value":false},
+    "437a1c86fb6f6644": {"kind":"literal","value":"high"},
+    "4bda4e22fe758b87": {"kind":"literal","value":"approximate"},
+    "4cd48f3e5108bd6e": {"kind":"primitive","type":"string"},
+    "6121e83c5d0c1f55": {"kind":"object","properties":[{"name":"data","type":"8f3fc3a7c3cb0257","optional":false},{"name":"ignorable","type":"dacf3d5f3e4ff619","optional":true},{"name":"seq","type":"0657d3ca5ac4e7bf","optional":false},{"name":"time","type":"0657d3ca5ac4e7bf","optional":false},{"name":"type","type":"b1744ab7221cbe5e","optional":false}],"indices":[]},
+    "65f6a6e8bdce8376": {"kind":"literal","value":"low"},
+    "6ff29133b5305a2e": {"kind":"tuple","elements":[{"type":"ab9303c4979add55","optional":false,"rest":false}]},
+    "71d011de93dceaf3": {"kind":"literal","value":"https://api.openai.com/v1/responses"},
+    "8352b0ab55ffb5bc": {"kind":"object","properties":[{"name":"country","type":"4cd48f3e5108bd6e","optional":true},{"name":"type","type":"4bda4e22fe758b87","optional":false}],"indices":[]},
+    "8bb188be8ccbc2bd": {"kind":"literal","value":"medium"},
+    "8cfb26bd123ee9bb": {"kind":"literal","value":"web_search_call.action.sources"},
+    "8f3fc3a7c3cb0257": {"kind":"object","properties":[{"name":"body","type":"d6890d047be4e921","optional":false},{"name":"endpoint","type":"71d011de93dceaf3","optional":false}],"indices":[]},
+    "935c8d486292b13c": {"kind":"literal","value":"web_search"},
+    "a49d1f78c32027e2": {"kind":"union","types":["437a1c86fb6f6644","65f6a6e8bdce8376","8bb188be8ccbc2bd"]},
+    "ab9303c4979add55": {"kind":"object","properties":[{"name":"search_context_size","type":"a49d1f78c32027e2","optional":false},{"name":"type","type":"935c8d486292b13c","optional":false},{"name":"user_location","type":"8352b0ab55ffb5bc","optional":false}],"indices":[]},
+    "b1744ab7221cbe5e": {"kind":"literal","value":"web/openai-search-llm-request"},
+    "c5a5e0d779b02f72": {"kind":"tuple","elements":[{"type":"8cfb26bd123ee9bb","optional":false,"rest":false}]},
+    "d6890d047be4e921": {"kind":"object","properties":[{"name":"include","type":"c5a5e0d779b02f72","optional":false},{"name":"input","type":"4cd48f3e5108bd6e","optional":false},{"name":"max_output_tokens","type":"0657d3ca5ac4e7bf","optional":false},{"name":"max_tool_calls","type":"0657d3ca5ac4e7bf","optional":false},{"name":"model","type":"4cd48f3e5108bd6e","optional":false},{"name":"store","type":"0c4205180f75b9ee","optional":false},{"name":"tool_choice","type":"db3a0dab525a7550","optional":false},{"name":"tools","type":"6ff29133b5305a2e","optional":false}],"indices":[]},
+    "dacf3d5f3e4ff619": {"kind":"literal","value":true},
+    "db3a0dab525a7550": {"kind":"literal","value":"required"}
+  }
+}

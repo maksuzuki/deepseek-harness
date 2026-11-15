@@ -1,0 +1,9 @@
+# The selected OpenAI provider has no credential, so the model request
+# withholds web_search while the rest of the shipped tool surface remains.
+- id: web
+  config:
+    searchProvider: openai-web-search
+
+- id: web-search-openai
+  config:
+    apiKeyEnv: DSH_SNAPSHOT_UNSET_OPENAI_SEARCH_KEY

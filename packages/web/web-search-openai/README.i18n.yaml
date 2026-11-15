@@ -1,0 +1,67 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/web/web-search-openai/README.md
+/:
+  en: 6474b78787520e39
+  zh: 55fffbd1f07f35ff
+/deepseek-ai-dsh-web-search-openai:
+  en: 21774e0beb9668ba
+  zh: cb5b31bae14220b2
+/deepseek-ai-dsh-web-search-openai/summary:
+  en: 535057fb80bc3de7
+  zh: e993bd094ffdd536
+/deepseek-ai-dsh-web-search-openai/table-of-contents:
+  en: b563e4ec4727d0de
+  zh: f94a08ffe17f758b
+/deepseek-ai-dsh-web-search-openai/use-this-package:
+  en: 5fc9e85a00435b8a
+  zh: 9aea14acd012692f
+/deepseek-ai-dsh-web-search-openai/use-this-package/configuration:
+  en: 61f19bdee9c3f8fe
+  zh: 49b57fe3d64d0525
+/deepseek-ai-dsh-web-search-openai/use-this-package/results-and-failures:
+  en: a0a2ce7dfafd7bea
+  zh: f5d04a05739ee5be
+/deepseek-ai-dsh-web-search-openai/use-this-package/cost-and-real-api-validation:
+  en: c54241208723e6ee
+  zh: 78772b0decb7a9a0
+/deepseek-ai-dsh-web-search-openai/understand-the-implementation:
+  en: 706a46464879a92e
+  zh: 2cc86f8399879f36
+/deepseek-ai-dsh-web-search-openai/further-exploration:
+  en: c2fe6a864b4465e7
+  zh: ded75e7cc4a5fec2
+/deepseek-ai-dsh-web-search-openai/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-web-search-openai/model-experience/auxiliary-openai-search-request:
+  en: 2e6f4f677665ab61
+  zh: 6bf45745f0667bea
+/deepseek-ai-dsh-web-search-openai/model-experience/auxiliary-openai-search-request/what-the-model-sees:
+  en: 706fdcc4b957658a
+  zh: ca2ec0dbd8836bab
+/deepseek-ai-dsh-web-search-openai/model-experience/auxiliary-openai-search-request/token-effect:
+  en: 5d0f24536dfebea6
+  zh: 1cd2aafea2e2214c
+/deepseek-ai-dsh-web-search-openai/model-experience/auxiliary-openai-search-request/kv-cache-effect:
+  en: f7340f9aa4ff7014
+  zh: 2738ad63dd1be292
+/deepseek-ai-dsh-web-search-openai/model-experience/conversation-tool-result-indirectly:
+  en: c858a15ec2f418a2
+  zh: c3e53adc67ec34dc
+/deepseek-ai-dsh-web-search-openai/model-experience/conversation-tool-result-indirectly/what-the-model-sees:
+  en: 3287fda99a9398b1
+  zh: 67fd96553d4927f2
+/deepseek-ai-dsh-web-search-openai/model-experience/conversation-tool-result-indirectly/token-effect:
+  en: bbaf29ee84e9413f
+  zh: 8eeb2c6e001dd708
+/deepseek-ai-dsh-web-search-openai/model-experience/conversation-tool-result-indirectly/kv-cache-effect:
+  en: 555531e7ce49582b
+  zh: 6ae9d23aa035c883
+/deepseek-ai-dsh-web-search-openai/known-limitations-and-deferred-work:
+  en: 64be1fdb8f7abf48
+  zh: 377143f8d8dfe7f2
+/deepseek-ai-dsh-web-search-openai/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 3bb0c20c93f16f98

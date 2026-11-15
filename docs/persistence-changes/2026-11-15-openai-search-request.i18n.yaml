@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-11-15-openai-search-request.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-11-15-openai-search-request.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-11-15-openai-search-request:
+  en: 83c2422e00b3de4f
+  zh: a673d3001900be74
+/2026-11-15-openai-search-request/summary:
+  en: bd6b92ba7f9fd601
+  zh: 3b3ec04a462a1802
+/2026-11-15-openai-search-request/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-11-15-openai-search-request/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-11-15-openai-search-request/compatibility:
+  en: 3c5f33b91f960bfe
+  zh: aa0df672fb62fce9
+/2026-11-15-openai-search-request/verification:
+  en: 864e3b031936545f
+  zh: 2f180f33f0f34025
+/2026-11-15-openai-search-request/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

@@ -530,6 +530,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-web-fetch-http` | yes | Anonymous HTTP(S) fetch provider for the DeepSeek Harness web capability seam (ctx.web) |
 | `@deepseek-ai/dsh-web-ollama-api` | yes | Ollama Cloud-backed search and fetch providers (POST /api/web_search and /api/web_fetch) for the DeepSeek Harness web capability seam (ctx.web) |
 | `@deepseek-ai/dsh-web-search-deepseek` | yes | DeepSeek-backed search provider (native web_search via the Anthropic-compatible API) for the DeepSeek Harness web capability seam (ctx.web) |
+| `@deepseek-ai/dsh-web-search-openai` | yes | OpenAI Responses API web_search provider for the DeepSeek Harness web capability seam (ctx.web) |
 
 ## workflow
 

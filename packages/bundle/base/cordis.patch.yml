@@ -490,6 +490,11 @@
       config:
         apiKeyEnv: DEEPSEEK_API_KEY
 
+    - id: web-search-openai
+      name: '@deepseek-ai/dsh-web-search-openai'
+      config:
+        apiKeyEnv: OPENAI_API_KEY
+
     - id: web-ollama-api
       name: '@deepseek-ai/dsh-web-ollama-api'
 

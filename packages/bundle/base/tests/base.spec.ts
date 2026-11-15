@@ -43,13 +43,15 @@ describe('dsh-base bundle', () => {
     expect(rows.filter(row => row.id === 'subagent-claude-code')).toHaveLength(0)
     expect(rows.find(row => row.id === 'web')?.config).toEqual({ searchProvider: 'deepseek-search-api', fetchProvider: 'http' })
     expect(rows.find(row => row.id === 'web-deepseek-api')).toEqual({ id: 'web-deepseek-api', name: '@deepseek-ai/dsh-web-deepseek-api' })
-    expect(rows.find(row => row.id === 'web-ollama-api')).toMatchObject({
-      name: '@deepseek-ai/dsh-web-ollama-api',
-      config: { apiKeyEnv: 'OLLAMA_CLOUD_API_KEY' },
+    expect(rows.find(row => row.id === 'web-ollama-api')).toEqual({
+      id: 'web-ollama-api', name: '@deepseek-ai/dsh-web-ollama-api',
     })
     expect(rows.find(row => row.id === 'web-fetch-http')).toBeDefined()
     expect(rows.find(row => row.id === 'web-search-deepseek')).toMatchObject({
       name: '@deepseek-ai/dsh-web-search-deepseek', config: { apiKeyEnv: 'DEEPSEEK_API_KEY' },
+    })
+    expect(rows.find(row => row.id === 'web-search-openai')).toMatchObject({
+      name: '@deepseek-ai/dsh-web-search-openai', config: { apiKeyEnv: 'OPENAI_API_KEY' },
     })
     expect(rows.find(row => row.id === 'tool-web')?.config).toMatchObject({ fetch: true })
     expect(manifest.dependencies).not.toHaveProperty('@deepseek-ai/dsh-subagent-codex')
@@ -57,6 +59,7 @@ describe('dsh-base bundle', () => {
     expect(manifest.dependencies).toHaveProperty('@deepseek-ai/dsh-web-fetch-http')
     expect(manifest.dependencies).toHaveProperty('@deepseek-ai/dsh-web-deepseek-api')
     expect(manifest.dependencies).toHaveProperty('@deepseek-ai/dsh-web-search-deepseek')
+    expect(manifest.dependencies).toHaveProperty('@deepseek-ai/dsh-web-search-openai')
     expect(manifest.dependencies).toHaveProperty('@deepseek-ai/dsh-web-ollama-api')
   })
 

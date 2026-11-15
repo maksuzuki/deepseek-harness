@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "OpenAI 网页搜索",
+    "description": "通过 OpenAI Responses API 搜索网页。"
+  }
+}
