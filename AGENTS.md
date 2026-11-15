@@ -2,6 +2,16 @@
 
 DeepSeek Harness is an all-plugin Cordis agent harness. Read [docs/architecture.md](docs/architecture.md) before changing `packages/`; follow [docs/AGENTS.md](docs/AGENTS.md) for documentation.
 
+## 個人Forkの開発運用（`maksuzuki/deepseek-harness`）
+
+この節は個人Forkの常用ブランチ `kazu/with-thinking` での作業に適用し、リポジトリ内の一般的なPR・stack運用規則より優先する。上流リポジトリの運用方針は変更しない。
+
+- 通常の修正は `kazu/with-thinking` に直接commit・pushする。PRやPR用ブランチは原則作成せず、ユーザーが明示的に指示した場合に限りPR方式を採用する。
+- 変更前にrepository、remote、branch、HEAD、作業ツリー、remoteとの同期を確認し、既存変更を保護する。想定と異なる場合は推測でブランチを切り替えず、状況を報告する。
+- 関連テスト・pre-push checks・可能な独立レビューを実施し、許可された変更を通常のcommit・pushで反映する。force pushや履歴書換えは行わない。
+- 上流 `shiguredo/deepseek-harness` の更新取り込み、上流向けPR、常用DSHやStrataの再起動・デプロイは別作業とし、明示的な指示なしに実施しない。
+- 完了時はcommit SHA、push先、検証結果、未検証範囲を報告する。
+
 ## Pre-stable APIs and released Session data
 
 Public APIs are pre-stable; update every consumer. Follow [version/status](docs/session-format-status.md) and [type acknowledgements](docs/cookbook/reviewing-persistence-type-changes.md). [Adjacent migration](.agents/notes/implemented/architecture/2026-08-31-released-session-format-migrations.md) may add a version-named successor but never move, overwrite, or delete committed generations; predecessors imply neither fallback nor downgrade support. SQLite uses monotonic `SCHEMA_VERSION`.
@@ -88,16 +98,16 @@ pnpm run test           # unit tests
 pnpm run test:coverage  # CI coverage gate: per-file 100% on packages/*/*/src
 pnpm run test:e2e       # real-API tests; self-skip without DEEPSEEK_API_KEY
 pnpm run test:expected  # owner-local process expectations
-pnpm run test:snapshot  # keyless recorded-session replay through shipped profiles; filter: -t <name>
+pnpm run test:snapshot  # keyless replay; filter: -t <name>
 pnpm run test:snapshot:record  # re-record expected outputs (needs key)
 pnpm run typecheck
 pnpm run lint
 pnpm run duplication    # cross-file TypeScript clone detection
 pnpm run build          # build:artifacts + build:check, concurrently
-pnpm run build:artifacts # artifacts: tsc emits lib/types, tsdown bundles runtime, Web
-pnpm run build:check    # typecheck aggregate tests/scripts against current build:artifacts output
-pnpm run hygiene        # publint + workspace/package/dependency checks + NodeNext consumer check
-pnpm run check:windows-wine  # ONLY when diagnosing a known Windows failure (needs wine); CI owns this signal
+pnpm run build:artifacts # tsc and tsdown artifacts
+pnpm run build:check    # check against current artifacts
+pnpm run hygiene        # package and consumer checks
+pnpm run check:windows-wine  # known Windows failures only (needs wine)
 pnpm run doc-sync       # documentation gates (scripts/run-gates.ts)
 pnpm run test:docs      # quick documentation checks (no build; doc-quick aggregate)
 pnpm run website:build  # VitePress build (doubles as dead-link check)
