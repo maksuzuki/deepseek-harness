@@ -85,6 +85,7 @@
 | `event:turn/start` | event | `aa0957eca50aeb28bcd2e6930b95809926edacb550c8c340ba526ba6b861b3d8` | [`{ type: "turn/start" }`](#persistence-type-sha256-aa0957eca50aeb28bcd2e6930b95809926edacb550c8c340ba526ba6b861b3d8) |
 | `event:user/message` | event | `fb6a6e338625067ac582f55dde412a583040cd738bb8fc6820cb0b941c59f05a` | [`{ type: "user/message" }`](#persistence-type-sha256-fb6a6e338625067ac582f55dde412a583040cd738bb8fc6820cb0b941c59f05a) |
 | `event:web/deepseek-search-llm-request` | event | `0c556c9b9f2a96238a6b9bbb99e748206cbff2ed6203041c9571f04ae5802f52` | [`{ type: "web/deepseek-search-llm-request" }`](#persistence-type-sha256-0c556c9b9f2a96238a6b9bbb99e748206cbff2ed6203041c9571f04ae5802f52) |
+| `event:web/openai-search-llm-request` | event | `6121e83c5d0c1f553b76b8d7365d2e054f2686e51bf8bdcc47a86e113788a4a4` | [`{ type: "web/openai-search-llm-request" }`](#persistence-type-sha256-6121e83c5d0c1f553b76b8d7365d2e054f2686e51bf8bdcc47a86e113788a4a4) |
 | `event:working-directory/change` | event | `124aa62078ca3311353b39cc3bf6c75da281338be6bbf672f8b361d828cddca3` | [`{ type: "working-directory/change" }`](#persistence-type-sha256-124aa62078ca3311353b39cc3bf6c75da281338be6bbf672f8b361d828cddca3) |
 | `event:workspace/changes` | event | `e308ccf867a5398e316e0af8cb6ce238a8d33a63b9b384c8250a686786285f72` | [`{ type: "workspace/changes" }`](#persistence-type-sha256-e308ccf867a5398e316e0af8cb6ce238a8d33a63b9b384c8250a686786285f72) |
 
@@ -1317,6 +1318,17 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/web/web-search-deepseek/src/provider.ts:89`](../packages/web/web-search-deepseek/src/provider.ts)
 
+<a id="webopenai-search-llm-request--log-only"></a>
+
+#### `web/openai-search-llm-request` — log-only
+
+```ts persistence-catalog
+/** Secret-free auxiliary OpenAI web search request recorded before dispatch. */
+'web/openai-search-llm-request': OpenAIWebSearchLlmRequest
+```
+
+来源：[`packages/web/web-search-openai/src/provider.ts:45`](../packages/web/web-search-openai/src/provider.ts)
+
 ### `working-directory/*`
 
 <a id="working-directorychange--log-only"></a>
@@ -1473,6 +1485,14 @@ SHA-256: `378f90f9f6022a0991928a1eaf7991094ea1920fe89a9248358a1da106e1a970`
 SHA-256: `36d6a9a871d949ea4f3edd919d81d66aa69218bebef38899d2a1282c39420a1f`
 
 `"approval/policy"`
+
+<a id="persistence-type-sha256-4bda4e22fe758b8792eb85a2b47762e805b06ab7a8f23f3b057d3494056b28cf"></a>
+
+### `"approximate"`
+
+SHA-256: `4bda4e22fe758b8792eb85a2b47762e805b06ab7a8f23f3b057d3494056b28cf`
+
+`"approximate"`
 
 <a id="persistence-type-sha256-9e07693fd7cd9babe0688c22c986e4d519ae1c0e40eeea13b2dc583bed2abc86"></a>
 
@@ -1922,6 +1942,14 @@ SHA-256: `237c004c73b6b288246816e0d7fde16e09c63a47aa3b1227383d7afe58666163`
 
 `"goal/change"`
 
+<a id="persistence-type-sha256-437a1c86fb6f66449be77a2b71773ab83865d2d8ee7b82a8db1c08936000a004"></a>
+
+### `"high"`
+
+SHA-256: `437a1c86fb6f66449be77a2b71773ab83865d2d8ee7b82a8db1c08936000a004`
+
+`"high"`
+
 <a id="persistence-type-sha256-dbdafceb9a900183cccc80596498d386f3bf7bddead2b8cfde68453aa4739edc"></a>
 
 ### `"hook"`
@@ -1961,6 +1989,14 @@ SHA-256: `a9059a81430b320792bbb7c2ee1f8f6c77ff71e40ee44c18aec72e157c522694`
 SHA-256: `bb94f3217aa56c8876bbff0b8460d6a73cbead545659abb29e76cd0cf2cb92d6`
 
 `"hooks-codex"`
+
+<a id="persistence-type-sha256-71d011de93dceaf3d635e52569e9d82bd5a157eb6e0342377802924d804d030e"></a>
+
+### `"https://api.openai.com/v1/responses"`
+
+SHA-256: `71d011de93dceaf3d635e52569e9d82bd5a157eb6e0342377802924d804d030e`
+
+`"https://api.openai.com/v1/responses"`
 
 <a id="persistence-type-sha256-fb8b6a2e53cb9cf44c551176de0fb77d1ddc60037b99a891ff8a860b6d5c29a0"></a>
 
@@ -2120,6 +2156,14 @@ SHA-256: `4ae007ed190a72c92138b22d059b83208079c7551ca13fb59ae8cf5e23693964`
 
 `"llm/retry-started"`
 
+<a id="persistence-type-sha256-65f6a6e8bdce83766d022927b3a9ba4d05876b4aaa7e0c5f13648801e9286634"></a>
+
+### `"low"`
+
+SHA-256: `65f6a6e8bdce83766d022927b3a9ba4d05876b4aaa7e0c5f13648801e9286634`
+
+`"low"`
+
 <a id="persistence-type-sha256-68141cbe3994a5ffcd064c07c75996538437fd9dbf77ce8a2927e89ec577fabe"></a>
 
 ### `"max-tokens"`
@@ -2127,6 +2171,14 @@ SHA-256: `4ae007ed190a72c92138b22d059b83208079c7551ca13fb59ae8cf5e23693964`
 SHA-256: `68141cbe3994a5ffcd064c07c75996538437fd9dbf77ce8a2927e89ec577fabe`
 
 `"max-tokens"`
+
+<a id="persistence-type-sha256-8bb188be8ccbc2bd027b5d91bf7932180a7cf3d58832c026d01819f3d2623a39"></a>
+
+### `"medium"`
+
+SHA-256: `8bb188be8ccbc2bd027b5d91bf7932180a7cf3d58832c026d01819f3d2623a39`
+
+`"medium"`
 
 <a id="persistence-type-sha256-2765e9119edf5816ac1ab4c95c5ee32c90403f3742962eff11544f7752d59d2e"></a>
 
@@ -2431,6 +2483,14 @@ SHA-256: `70b082fe78991edf13cf66e1b4d06cd2dcff9cacfd76f8cfb996bfb61939e7b2`
 SHA-256: `3e0eff5946255ff05d88a10839c60305135801f97794ea48d409f8503303317e`
 
 `"request/header"`
+
+<a id="persistence-type-sha256-db3a0dab525a755036dfd23cb66626397bbd94bc6fd74eba1a54c326b3366880"></a>
+
+### `"required"`
+
+SHA-256: `db3a0dab525a755036dfd23cb66626397bbd94bc6fd74eba1a54c326b3366880`
+
+`"required"`
 
 <a id="persistence-type-sha256-5bd310104cfe448e530beb11422d2f791e2e32e8e95fdc528a15f9ca693dae75"></a>
 
@@ -3040,6 +3100,14 @@ SHA-256: `6f611bed14b2106542480c4a230b4a83baf76dc0d8ac0cd13319a7cb8dae7675`
 
 `"web/deepseek-search-llm-request"`
 
+<a id="persistence-type-sha256-b1744ab7221cbe5ead8154d98ff70cec31df786c12d14c2a8e6a5b5aea70e21f"></a>
+
+### `"web/openai-search-llm-request"`
+
+SHA-256: `b1744ab7221cbe5ead8154d98ff70cec31df786c12d14c2a8e6a5b5aea70e21f`
+
+`"web/openai-search-llm-request"`
+
 <a id="persistence-type-sha256-935c8d486292b13c87b57ca280eb8c58b5b2f5239be86fcd4334c33fdeb87682"></a>
 
 ### `"web_search"`
@@ -3055,6 +3123,14 @@ SHA-256: `935c8d486292b13c87b57ca280eb8c58b5b2f5239be86fcd4334c33fdeb87682`
 SHA-256: `0116b1f89c05221d56b0ba35c83d302bf4857bc7277d247e9bbaf74b27d2c66e`
 
 `"web_search_20250305"`
+
+<a id="persistence-type-sha256-8cfb26bd123ee9bb9c66fe08f0dca61559a04d9c56a9f1df1385b4b72a732b84"></a>
+
+### `"web_search_call.action.sources"`
+
+SHA-256: `8cfb26bd123ee9bb9c66fe08f0dca61559a04d9c56a9f1df1385b4b72a732b84`
+
+`"web_search_call.action.sources"`
 
 <a id="persistence-type-sha256-db6c5246911d47a7969f6b4cb47c7d0dbbde75c402710b22ace3672fa97bebe0"></a>
 
@@ -4462,6 +4538,64 @@ SHA-256: `5f758f3de5f00c18968a7c6d347083aac5c9ae13f6a79c78f6611b23c4973564`
 | `provider` | 必需 | `string` |
 | `version` | 必需 | `number` |
 
+<a id="persistence-type-sha256-a49d1f78c32027e20f567158604dd21931d04937086affdd717231be7ac9f875"></a>
+
+<a id="persistence-type-openaiwebsearchcontextsize"></a>
+
+<a id="persistence-type-packageswebweb-search-openaisrcprovidertsopenaiwebsearchcontextsize"></a>
+
+### `OpenAIWebSearchContextSize`
+
+SHA-256: `a49d1f78c32027e20f567158604dd21931d04937086affdd717231be7ac9f875`
+
+来源：[`packages/web/web-search-openai/src/provider.ts:50`](../packages/web/web-search-openai/src/provider.ts)
+
+以下类型之一：
+
+- `"high"`
+- `"low"`
+- `"medium"`
+
+<a id="persistence-type-sha256-8f3fc3a7c3cb025798a282fcf982dbd24db4f781eda13b4712296bb4bb7b7c2e"></a>
+
+<a id="persistence-type-openaiwebsearchllmrequest"></a>
+
+<a id="persistence-type-packageswebweb-search-openaisrcprovidertsopenaiwebsearchllmrequest"></a>
+
+### `OpenAIWebSearchLlmRequest`
+
+SHA-256: `8f3fc3a7c3cb025798a282fcf982dbd24db4f781eda13b4712296bb4bb7b7c2e`
+
+来源：[`packages/web/web-search-openai/src/provider.ts:35`](../packages/web/web-search-openai/src/provider.ts)
+
+| 属性 | 存在性 | 类型 |
+|---|---|---|
+| `body` | 必需 | [`OpenAIWebSearchRequestBody`](#persistence-type-sha256-d6890d047be4e92162358d9aa4cce1db1f4c74953a1de1b85330842fca74255c) |
+| `endpoint` | 必需 | `"https://api.openai.com/v1/responses"` |
+
+<a id="persistence-type-sha256-d6890d047be4e92162358d9aa4cce1db1f4c74953a1de1b85330842fca74255c"></a>
+
+<a id="persistence-type-openaiwebsearchrequestbody"></a>
+
+<a id="persistence-type-packageswebweb-search-openaisrcprovidertsopenaiwebsearchrequestbody"></a>
+
+### `OpenAIWebSearchRequestBody`
+
+SHA-256: `d6890d047be4e92162358d9aa4cce1db1f4c74953a1de1b85330842fca74255c`
+
+来源：[`packages/web/web-search-openai/src/provider.ts:53`](../packages/web/web-search-openai/src/provider.ts)
+
+| 属性 | 存在性 | 类型 |
+|---|---|---|
+| `include` | 必需 | [`tuple (1 positions)`](#persistence-type-sha256-c5a5e0d779b02f72cecdc7dee018b5139912fca9596ed452433075fb5bd9debc) |
+| `input` | 必需 | `string` |
+| `max_output_tokens` | 必需 | `number` |
+| `max_tool_calls` | 必需 | `number` |
+| `model` | 必需 | `string` |
+| `store` | 必需 | `false` |
+| `tool_choice` | 必需 | `"required"` |
+| `tools` | 必需 | [`tuple (1 positions)`](#persistence-type-sha256-6ff29133b5305a2eab402860adb96b0c9c4cb3ce7703ccb56563fdf25c6a01db) |
+
 <a id="persistence-type-sha256-3bd652ebfa8726b3ce3937a4f1bd2759e02f86b3a08a20f9e41a8513656fbc5f"></a>
 
 <a id="persistence-type-optionalsessionseq"></a>
@@ -5698,6 +5832,16 @@ SHA-256: `4aed17ec726b5397c29f6cb4bcd7905dc1a12bb6140f1657f073cd24380f2af8`
 |---|---|---|
 | 0 | 必需 | [`{ type: "web_search_20250305" }`](#persistence-type-sha256-2d11ca7b0d4493e244b74eba093227866b33249841e59a1e9bf56afed38604c3) |
 
+<a id="persistence-type-sha256-6ff29133b5305a2eab402860adb96b0c9c4cb3ce7703ccb56563fdf25c6a01db"></a>
+
+### `tuple (1 positions)`
+
+SHA-256: `6ff29133b5305a2eab402860adb96b0c9c4cb3ce7703ccb56563fdf25c6a01db`
+
+| 位置 | 存在性 | 类型 |
+|---|---|---|
+| 0 | 必需 | [`{ type: "web_search" }`](#persistence-type-sha256-ab9303c4979add557da5e9beddd6f39df86f344a544c77d66b45f4fc25b29875) |
+
 <a id="persistence-type-sha256-8f6d609794bf5afc01d7ccf3e03811d32f4b8047f58a2c9a98db0154c2ad7cb9"></a>
 
 ### `tuple (1 positions)`
@@ -5717,6 +5861,16 @@ SHA-256: `b993441f8ce7d27b80e619e113e232ae8e62d3d5a8340f6bfe12d8c4c018e62f`
 | 位置 | 存在性 | 类型 |
 |---|---|---|
 | 0 | 必需 | [`{ role: "user" }`](#persistence-type-sha256-9a2a9029f8d7ede05336980d8342737557f487b913bfd28853d0ab5214600ab5) |
+
+<a id="persistence-type-sha256-c5a5e0d779b02f72cecdc7dee018b5139912fca9596ed452433075fb5bd9debc"></a>
+
+### `tuple (1 positions)`
+
+SHA-256: `c5a5e0d779b02f72cecdc7dee018b5139912fca9596ed452433075fb5bd9debc`
+
+| 位置 | 存在性 | 类型 |
+|---|---|---|
+| 0 | 必需 | `"web_search_call.action.sources"` |
 
 <a id="persistence-type-sha256-1ab2ef1296f157ba96998f179bb5daa9d21a82480da2901127aeab2730797c92"></a>
 
@@ -8300,6 +8454,19 @@ SHA-256: `26718e15e7e395bce9642dba5bbe09b3b1a4ce2213d20d566cd9207d7fc5fb78`
 | `time` | 必需 | `number` |
 | `type` | 必需 | `"approval/policy"` |
 
+<a id="persistence-type-sha256-8352b0ab55ffb5bc8416e96dcb99777fd050af0043f4eaf66f8b822cf416cb3d"></a>
+
+### `{ type: "approximate" }`
+
+SHA-256: `8352b0ab55ffb5bc8416e96dcb99777fd050af0043f4eaf66f8b822cf416cb3d`
+
+来源：[`packages/web/web-search-openai/src/provider.ts:59`](../packages/web/web-search-openai/src/provider.ts)
+
+| 属性 | 存在性 | 类型 |
+|---|---|---|
+| `country` | 可选 | `string` |
+| `type` | 必需 | `"approximate"` |
+
 <a id="persistence-type-sha256-15d5dfdd822aa35e115afd74a8982825a493880457774e6850bc1520b50875e4"></a>
 
 <a id="persistence-type-eventassistantattempt"></a>
@@ -9379,6 +9546,36 @@ SHA-256: `0c556c9b9f2a96238a6b9bbb99e748206cbff2ed6203041c9571f04ae5802f52`
 | `seq` | 必需 | `number` |
 | `time` | 必需 | `number` |
 | `type` | 必需 | `"web/deepseek-search-llm-request"` |
+
+<a id="persistence-type-sha256-6121e83c5d0c1f553b76b8d7365d2e054f2686e51bf8bdcc47a86e113788a4a4"></a>
+
+<a id="persistence-type-eventwebopenai-search-llm-request"></a>
+
+### `{ type: "web/openai-search-llm-request" }`
+
+SHA-256: `6121e83c5d0c1f553b76b8d7365d2e054f2686e51bf8bdcc47a86e113788a4a4`
+
+| 属性 | 存在性 | 类型 |
+|---|---|---|
+| `data` | 必需 | [`OpenAIWebSearchLlmRequest`](#persistence-type-sha256-8f3fc3a7c3cb025798a282fcf982dbd24db4f781eda13b4712296bb4bb7b7c2e) |
+| `ignorable` | 可选 | `true` |
+| `seq` | 必需 | `number` |
+| `time` | 必需 | `number` |
+| `type` | 必需 | `"web/openai-search-llm-request"` |
+
+<a id="persistence-type-sha256-ab9303c4979add557da5e9beddd6f39df86f344a544c77d66b45f4fc25b29875"></a>
+
+### `{ type: "web_search" }`
+
+SHA-256: `ab9303c4979add557da5e9beddd6f39df86f344a544c77d66b45f4fc25b29875`
+
+来源：[`packages/web/web-search-openai/src/provider.ts:56`](../packages/web/web-search-openai/src/provider.ts)
+
+| 属性 | 存在性 | 类型 |
+|---|---|---|
+| `search_context_size` | 必需 | [`OpenAIWebSearchContextSize`](#persistence-type-sha256-a49d1f78c32027e20f567158604dd21931d04937086affdd717231be7ac9f875) |
+| `type` | 必需 | `"web_search"` |
+| `user_location` | 必需 | [`{ type: "approximate" }`](#persistence-type-sha256-8352b0ab55ffb5bc8416e96dcb99777fd050af0043f4eaf66f8b822cf416cb3d) |
 
 <a id="persistence-type-sha256-2d11ca7b0d4493e244b74eba093227866b33249841e59a1e9bf56afed38604c3"></a>
 

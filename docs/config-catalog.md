@@ -5179,6 +5179,39 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-web-search-deepseek -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-web-search-openai -->
+<a id="deepseek-aidsh-web-search-openai"></a>
+
+## `@deepseek-ai/dsh-web-search-openai`
+
+- `inject`: `web`
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/web/web-search-openai/src/index.ts:36`](../packages/web/web-search-openai/src/index.ts)
+
+```ts config-catalog
+/** Live OpenAI search settings. */
+export interface Config {
+  /** Credential reference resolved per search. */
+  readonly apiKeyEnv: Volatile<string>
+  /** Auxiliary model. */
+  readonly model: Volatile<string>
+  /** Hosted search context size. */
+  readonly searchContextSize: Volatile<OpenAIWebSearchContextSize>
+  /** Generated and reasoning token ceiling. */
+  readonly maxOutputTokens: Volatile<number>
+  /** Maximum built-in tool calls. */
+  readonly maxToolCalls: Volatile<number>
+  /** Optional explicit ISO 3166-1 alpha-2 country; omitted sends no inferred location. */
+  readonly country: Volatile<string | undefined>
+  /** Request timeout in milliseconds. */
+  readonly timeoutMs: Volatile<number>
+}
+
+/** Search context sizes accepted by the hosted tool. */
+export type OpenAIWebSearchContextSize = 'low' | 'medium' | 'high'
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-web-search-openai -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-webhook-github -->
 <a id="deepseek-aidsh-webhook-github"></a>
 

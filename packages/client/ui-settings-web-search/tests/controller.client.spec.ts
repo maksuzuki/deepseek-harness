@@ -757,6 +757,33 @@ describe('WebSearchCardController providers', () => {
     } finally { b.controller.dispose() }
   })
 
+  it('offers the registered OpenAI search provider without changing other provider choices', async () => {
+    const b = bench({ accept: true })
+    try {
+      b.credentials.listProviders.mockResolvedValue({
+        ok: true,
+        value: {
+          search: [...SHIPPED_PROVIDERS.search, {
+            id: 'openai-web-search', title: 'OpenAI web search',
+            description: { en: 'OpenAI Responses API web search.' },
+          }],
+          fetch: SHIPPED_PROVIDERS.fetch,
+        },
+      })
+      b.controller.refreshProviders()
+      serve(b)
+      await vi.waitFor(() => { expect(b.state().search.options).toHaveLength(3) })
+      expect(b.state().search.options[2]).toMatchObject({
+        id: 'openai-web-search', title: 'OpenAI web search', missing: false,
+      })
+      b.face.selectProvider('searchProvider', 'openai-web-search')
+      expect(b.state().search).toMatchObject({ selected: 'openai-web-search', kind: 'plugin' })
+      expect(b.state().fetch).toMatchObject({ selected: 'http', kind: 'local' })
+      b.face.selectProvider('searchProvider', 'deepseek-search-api')
+      expect(b.state().search).toMatchObject({ selected: 'deepseek-search-api', kind: 'deepseek' })
+    } finally { b.controller.dispose() }
+  })
+
   it('adds a selected provider the Host does not register without changing the selection', async () => {
     const b = bench()
     try {

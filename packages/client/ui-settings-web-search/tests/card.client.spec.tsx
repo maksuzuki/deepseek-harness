@@ -304,6 +304,26 @@ describe('WebSearchCard', () => {
     expect(screen.queryByRole('textbox')).toBeNull()
   })
 
+  it('renders OpenAI search in the generic provider menu and keeps direct fetch selected', () => {
+    const base = shipped()
+    const { actions } = renderPage({
+      ...base,
+      search: {
+        ...base.search,
+        options: [...base.search.options, {
+          id: 'openai-web-search', title: 'OpenAI web search',
+          description: { en: 'OpenAI Responses API web search.', zh: 'OpenAI Responses API 网页搜索。' },
+          missing: false,
+        }],
+      },
+    })
+    fireEvent.click(searchMenu())
+    fireEvent.click(screen.getByRole('menuitem', { name: 'OpenAI web search' }))
+    expect(actions.selectProvider).toHaveBeenCalledWith('searchProvider', 'openai-web-search')
+    expect(fetchMenu().textContent).toBe(en.providerLocal)
+    expect(screen.queryByText(en.credential)).toBeNull()
+  })
+
   it('selects a provider from the menu and leaves the current one alone', () => {
     const { actions } = renderPage()
     fireEvent.click(searchMenu())

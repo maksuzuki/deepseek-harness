@@ -47,12 +47,16 @@ describe('dsh-base bundle', () => {
     expect(rows.find(row => row.id === 'web-search-deepseek')).toMatchObject({
       name: '@deepseek-ai/dsh-web-search-deepseek', config: { apiKeyEnv: 'DEEPSEEK_API_KEY' },
     })
+    expect(rows.find(row => row.id === 'web-search-openai')).toMatchObject({
+      name: '@deepseek-ai/dsh-web-search-openai',
+    })
     expect(rows.find(row => row.id === 'tool-web')?.config).toMatchObject({ fetch: true })
     expect(manifest.dependencies).not.toHaveProperty('@deepseek-ai/dsh-subagent-codex')
     expect(manifest.dependencies).not.toHaveProperty('@deepseek-ai/dsh-subagent-claude-code')
     expect(manifest.dependencies).toHaveProperty('@deepseek-ai/dsh-web-fetch-http')
     expect(manifest.dependencies).toHaveProperty('@deepseek-ai/dsh-web-deepseek-api')
     expect(manifest.dependencies).toHaveProperty('@deepseek-ai/dsh-web-search-deepseek')
+    expect(manifest.dependencies).toHaveProperty('@deepseek-ai/dsh-web-search-openai')
     expect(manifest.dependencies).toHaveProperty('@deepseek-ai/dsh-web-ollama-api')
   })
 
