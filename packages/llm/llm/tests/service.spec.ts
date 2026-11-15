@@ -953,7 +953,9 @@ describe('LlmRuntime', () => {
     await ctx.plugin(LlmRuntime)
     const adapter = new class extends ScriptedAdapter {
       override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
-        return Promise.resolve({ provider, id: model, name: model, thinking } as unknown as LlmResolvedModelInfo)
+        const resolved: LlmResolvedModelInfo = { provider, id: model, name: model }
+        Reflect.set(resolved, 'thinking', thinking)
+        return Promise.resolve(resolved)
       }
     }(SCRIPT)
     ctx.llm.registerAdapter(['route'], adapter)

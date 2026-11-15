@@ -564,7 +564,7 @@ describe('Session', () => {
     expect(Session.create(brandString<SessionId>('boolean-thinking'), [valid]).snapshotEvents()[0]).toEqual(valid)
     const invalid = structuredClone(valid) as SessionEvent
     if (invalid.type !== 'request/header') throw new Error('test fixture must be a request header')
-    ;(invalid.data.header.config as unknown as Record<string, unknown>).thinking = 'high'
+    Reflect.set(invalid.data.header.config, 'thinking', 'high')
     expect(() => Session.create(brandString<SessionId>('invalid-boolean-thinking'), [invalid]))
       .toThrow('seed request/header at index 0 has invalid boolean Thinking')
   })
