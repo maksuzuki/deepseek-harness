@@ -63,7 +63,7 @@ HTTP 失败、余额或支出限制、速率限制、错误 JSON、未完成响�
 
 ### 费用与真实 API 验证
 
-OpenAI 对托管网页搜索按工具调用、搜索内容 token 与模型 token 计费。[OpenAI 定价页面](https://developers.openai.com/api/docs/pricing)是权威来源；本文发布时，标准网页搜索列出的价格为每 1,000 次调用 10 美元，另按所选模型费率收取搜索内容 token 费用。`maxToolCalls` 限制单个响应中的工具调用次数，`maxOutputTokens`、`searchContextSize` 与所选模型则影响 token 使用量和价格。
+OpenAI 对托管网页搜索按工具调用、搜索内容 token 与模型 token 计费。[OpenAI 定价页面](https://developers.openai.com/api/docs/pricing)提供当前费率。`maxToolCalls` 限制单个响应中的工具调用次数，`maxOutputTokens`、`searchContextSize` 与所选模型则影响 token 使用量和价格。
 
 真实 API 探针仅在同时存在 `OPENAI_API_KEY` 且 `DSH_OPENAI_WEB_SEARCH_E2E=1` 明确记录付费测试许可时运行。普通单元测试与 Loader 组合测试是不计费的替代验证，不能验证实时模型可用性、计费、速率限制或当前生产响应字段。
 
@@ -124,7 +124,7 @@ OpenAI 对托管网页搜索按工具调用、搜索内容 token 与模型 token
 
 - **官方端点固定**——这会阻止通过配置转发凭据，但不支持 OpenAI 兼容代理和私有网关。
 - **来源不含经验证的摘录**——Responses API 来源列表提供 URL，引用提供标题；生成的回答文本不会被改作 snippet。
-- **未提交实时响应 fixture**——实现此包时没有运行付费真实 API 探针，因此测试使用符合官方 schema 的合成响应，实时 API 兼容性仍未验证。
+- **未提交实时响应 fixture**——无密钥测试使用合成的 Responses API fixture；实时 API 兼容性仍未验证。
 - **搜索使用 OpenAI，抓取不使用**——使用现有 HTTP 或 DeepSeek 抓取提供方读取选中的来源。
 
 <a id="dev-note"></a>

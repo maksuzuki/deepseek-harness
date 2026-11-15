@@ -7,7 +7,7 @@ import {
   OPENAI_WEB_SEARCH_DEFAULT_MODEL,
   OPENAI_WEB_SEARCH_DEFAULT_TIMEOUT_MS,
   OpenAIWebSearchProvider,
-} from '@deepseek-ai/dsh-web-search-openai'
+} from '../src/provider.ts'
 
 const apiKey = process.env.OPENAI_API_KEY
 const approved = process.env.DSH_OPENAI_WEB_SEARCH_E2E === '1'

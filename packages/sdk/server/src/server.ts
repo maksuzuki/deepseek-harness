@@ -13,9 +13,9 @@ import { SdkUserQuestionBridge } from './user-questions.ts'
 import { queryCommand } from './query-input.ts'
 import { queryCommandImages, queryContent } from './query-content.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import type { Agent, AgentHandle, ModelSelection } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import { admitEncodedImages, type EncodedImageAttachment, type ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import { createUserMessage, ReasoningEffortId, type ContentBlock, type LlmRuntime } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, type ReasoningEffortId, type ContentBlock, type LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-working-directory'
 import type {} from '@deepseek-ai/dsh-user-approval'
@@ -90,7 +90,8 @@ export class HarnessSdkJsonRpcServer {
   private cwd = process.cwd()
   private provider = 'deepseek-official'
   private model = 'deepseek-official'
-  private reasoningEffort: ReturnType<typeof ReasoningEffortId> | undefined
+  private reasoningEffort: ReasoningEffortId | undefined
+  private thinking: boolean | undefined
   private maxTokens: number | undefined
   private llmFiber: { dispose(): Promise<void> } | undefined
   private readonly sessions = new Map<string, SessionRecord>()
@@ -220,6 +221,9 @@ export class HarnessSdkJsonRpcServer {
       && (typeof params.reasoningEffort !== 'string' || params.reasoningEffort.length === 0)) {
       throw new TypeError('initialize reasoningEffort must be a non-empty string')
     }
+    if (params.thinking !== undefined && typeof params.thinking !== 'boolean') {
+      throw new TypeError('initialize thinking must be a boolean')
+    }
     if (params.maxTokens !== undefined
       && (!Number.isSafeInteger(params.maxTokens) || params.maxTokens <= 0)) {
       throw new TypeError('initialize maxTokens must be a positive safe integer')
@@ -229,7 +233,7 @@ export class HarnessSdkJsonRpcServer {
     const model = params.model
     const reasoningEffort = params.reasoningEffort === undefined
       ? undefined
-      : ReasoningEffortId(params.reasoningEffort)
+      : brandString<ReasoningEffortId>(params.reasoningEffort)
     if (!this.hasAdapterFor(provider)) {
       if (provider !== 'deepseek-official') throw new Error(`no adapter registered for provider "${provider}"`)
       this.llmFiber = await this.ctx.plugin(LlmDeepSeek)
@@ -240,12 +244,14 @@ export class HarnessSdkJsonRpcServer {
       provider,
       model,
       ...reasoningEffort === undefined ? {} : { reasoningEffort },
+      ...params.thinking === undefined ? {} : { thinking: params.thinking },
       ...params.maxTokens === undefined ? {} : { maxTokens: params.maxTokens },
     })
     this.cwd = cwd
     this.provider = provider
     this.model = model
     this.reasoningEffort = reasoningEffort
+    this.thinking = params.thinking
     this.maxTokens = params.maxTokens
     this.approvalRequests = params.approvalRequests === true
     this.userQuestions.enabled = params.capabilities?.userQuestions === true
@@ -573,6 +579,7 @@ export class HarnessSdkJsonRpcServer {
       provider: this.provider,
       model: this.model,
       ...this.reasoningEffort === undefined ? {} : { reasoningEffort: this.reasoningEffort },
+      ...this.thinking === undefined ? {} : { thinking: this.thinking },
       ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
     }
     const handle = await (resume ? this.ctx.agents.resume({
@@ -581,7 +588,7 @@ export class HarnessSdkJsonRpcServer {
       // The initialized route replaces the restored Session's model selection.
       setup: (_agentCtx, agent) => {
         const previous = agent.model.current()
-        const selection: ModelSelection = { ...agentOptions }
+        const selection = { ...agentOptions }
         if (selection.reasoningEffort === undefined && previous !== undefined
           && previous.provider === selection.provider && previous.model === selection.model
           && previous.reasoningEffort !== undefined) {

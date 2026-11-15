@@ -2823,7 +2823,7 @@ describe('Client Typert API', () => {
 })
 
 describe('Remote stream client carrier lifecycle', () => {
-  it('reports an idle answering socket loss to the first logical stream', async () => {
+  it('reports idle answering socket loss to the next opener and recovers after reconnect', async () => {
     await withFakeWebSocket('https://harness.example/', async () => {
       const client = new RemoteStreamMuxClient(undefined, true)
       client.start()
@@ -2836,7 +2836,6 @@ describe('Remote stream client carrier lifecycle', () => {
           name: 'RemoteStreamCarrierError',
           message: 'api gateway: Remote stream WebSocket closed',
         })
-
         client.reconnect()
         await vi.waitFor(() => { expect(FakeWebSocket.sockets).toHaveLength(2) })
         const replacement = FakeWebSocket.sockets[1]!
@@ -2853,28 +2852,45 @@ describe('Remote stream client carrier lifecycle', () => {
     })
   })
 
-  it('does not treat another logical stream as the Connection retry owner', async () => {
+  it('does not treat a sibling stream as the Connection retry owner', async () => {
     await withFakeWebSocket('https://harness.example/', async () => {
       const client = new RemoteStreamMuxClient(undefined, true)
       client.start()
       const sibling = client.open('fixture/follow', {}, new AbortController().signal)
         [Symbol.asyncIterator]().next()
       void sibling.catch(() => undefined)
-
       try {
         const socket = FakeWebSocket.sockets[0]!
         await vi.waitFor(() => { expect(socket.sent).toHaveLength(1) })
         socket.drop()
-        await expect(sibling).rejects.toMatchObject({
-          name: 'RemoteStreamCarrierError',
-          message: 'api gateway: Remote stream WebSocket closed',
-        })
+        await expect(sibling).rejects.toMatchObject({ name: 'RemoteStreamCarrierError' })
         await expect(client.open('$events', { args: {} }, new AbortController().signal)
-          [Symbol.asyncIterator]().next()).rejects.toMatchObject({
+          [Symbol.asyncIterator]().next()).rejects.toMatchObject({ name: 'RemoteStreamCarrierError' })
+      } finally {
+        await client.close()
+      }
+    })
+  })
+
+  it('rejects an answering opener waiting for an idle socket to close', async () => {
+    await withFakeWebSocket('https://harness.example/', async () => {
+      FakeWebSocket.autoOpen = false
+      FakeWebSocket.dispatchClose = false
+      const client = new RemoteStreamMuxClient(undefined, true)
+      client.start()
+      const socket = FakeWebSocket.sockets[0]!
+      socket.open()
+      socket.close()
+      const pending = client.open('fixture/follow', {}, new AbortController().signal)
+        [Symbol.asyncIterator]().next()
+      try {
+        socket.drop()
+        await expect(pending).rejects.toMatchObject({
           name: 'RemoteStreamCarrierError',
           message: 'api gateway: Remote stream WebSocket closed',
         })
       } finally {
+        socket.drop()
         await client.close()
       }
     })

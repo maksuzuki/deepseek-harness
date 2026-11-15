@@ -39,8 +39,8 @@
   en: bf3175c2218a16dd
   zh: 4be9271efe71ddb7
 /deepseek-ai-dsh-subagent/use-this-package/failure-and-recovery:
-  en: 0dc416ded19e304e
-  zh: 4726e5fe5f188709
+  en: c097c297e75f3bd4
+  zh: 0b09f2870ccc6a64
 /deepseek-ai-dsh-subagent/understand-the-implementation:
   en: 74d91b364b23f88d
   zh: 19cc558105efe8df
@@ -54,14 +54,14 @@
   en: 61cddba23f4e7d1c
   zh: 052c8331a747403f
 /deepseek-ai-dsh-subagent/understand-the-implementation/activation-settlement:
-  en: 9543250098033347
-  zh: 3721af3e31409a32
+  en: ba22f6dd5f15f405
+  zh: a469c6a4e49adea9
 /deepseek-ai-dsh-subagent/understand-the-implementation/restoring-child-composition:
   en: 843f9f4319ca2ae3
   zh: 218bf355816d4ff6
 /deepseek-ai-dsh-subagent/understand-the-implementation/ownership-and-invariants:
-  en: ab5d2c41f06b8fea
-  zh: 13a9ca3685fa799b
+  en: 27e8a0151fc68958
+  zh: b6a84301d0d60e79
 /deepseek-ai-dsh-subagent/further-exploration:
   en: 5b0f408dd901d90a
   zh: e11866d5fd878327

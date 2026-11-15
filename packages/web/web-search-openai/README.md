@@ -63,7 +63,7 @@ HTTP failures, credit or spend limits, rate limits, malformed JSON, incomplete r
 
 ### Cost and real-API validation
 
-OpenAI bills hosted web search per tool call plus search-content and model tokens. The [OpenAI pricing page](https://developers.openai.com/api/docs/pricing) is the authority; at publication time, standard web search is listed as USD 10 per 1,000 calls plus search-content tokens at the selected model's rates. `maxToolCalls` bounds tool calls in one response, while `maxOutputTokens`, `searchContextSize`, and the selected model affect token use and price.
+OpenAI bills hosted web search per tool call plus search-content and model tokens. The [OpenAI pricing page](https://developers.openai.com/api/docs/pricing) is the authority for current rates. `maxToolCalls` bounds tool calls in one response, while `maxOutputTokens`, `searchContextSize`, and the selected model affect token use and price.
 
 The real-API probe runs only when both `OPENAI_API_KEY` is available and `DSH_OPENAI_WEB_SEARCH_E2E=1` explicitly records paid-test approval. Ordinary unit and Loader-composition tests are non-billable substitutes and do not validate live model availability, billing, rate limits, or the current production response fields.
 
@@ -124,7 +124,7 @@ No direct prefix change; the normal tool result enters conversation history.
 
 - **The official endpoint is fixed** — this prevents credential forwarding through configuration, but excludes OpenAI-compatible proxies and private gateways.
 - **Sources expose no verified excerpt** — the Responses API source list supplies URLs and citations supply titles; generated answer text is intentionally not repurposed as a snippet.
-- **No live response fixture is committed** — the paid real-API probe was not run while implementing this package, so tests use synthetic official-schema responses and live API compatibility remains unverified.
+- **No live response fixture is committed** — keyless tests use synthetic Responses API fixtures; live API compatibility remains unverified.
 - **Search is OpenAI-only, fetch is not** — use the existing HTTP or DeepSeek fetch provider to retrieve a selected source.
 
 <a id="dev-note"></a>

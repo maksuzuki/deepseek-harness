@@ -141,7 +141,6 @@ async function boot(): Promise<Composition> {
       return () => { routes.splice(routes.indexOf(route), 1) }
     },
   })
-  context.provide('connection', { requestRejection: () => undefined })
   context.provide('userQuestions', {
     async ask(request: QuestionRequest) {
       asks.push(request)

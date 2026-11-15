@@ -26,6 +26,8 @@ export interface InitializeParams {
   model: string
   /** Optional adapter-owned reasoning effort for the selected provider/model route. */
   reasoningEffort?: ReasoningEffortId
+  /** Explicit boolean Thinking for the selected provider/model route. */
+  thinking?: boolean
   /** Optional positive output-token cap inherited by SDK-created agents and their in-process descendants. */
   maxTokens?: number
   /** Host-provided capabilities; omission retains native in-process answerers. */

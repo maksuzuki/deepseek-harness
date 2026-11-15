@@ -64,7 +64,7 @@ kind: "package-reference"
 
 ### 两个独立设置
 
-`stateFile` 保存 `{ "default": boolean, "sessions": { "<sessionId>": boolean } }`。没有存储选择的会话在首次使用时捕获当前默认值，因此修改默认值不会覆盖已有会话。Web 路由为两个层级提供读写，并在回答前调用 `connection` 服务的 `requestRejection` 检查，由 Connection 拥有的 Host/Origin 与身份验证检查保护浏览器控制面。两个设置都与会话的权限预设和审批策略无关。
+`stateFile` 保存 `{ "default": boolean, "sessions": { "<sessionId>": boolean } }`。没有存储选择的会话在首次使用时捕获当前默认值，因此修改默认值不会覆盖已有会话。Web 路由为两个层级提供读写，且不接受匿名请求：由 Connection 服务的 `webserver/authorize` 监听器在处理函数运行前执行部署的 Host/Origin 检查并完成浏览器会话身份验证。两个设置都与会话的权限预设和审批策略无关。
 
 ### 源码地图
 

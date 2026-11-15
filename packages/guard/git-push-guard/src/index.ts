@@ -33,8 +33,8 @@ export type { GuardState } from './state.ts'
 /** Cordis function-plugin name. */
 export const name = 'git-push-guard'
 
-/** The route carrier, the trust fence, the tool pipeline, the prompt, and the human answerer. */
-export const inject = ['webServer', 'connection', 'tools', 'systemPrompt', 'userQuestions']
+/** The route carrier, the tool pipeline, the prompt, and the human answerer. */
+export const inject = ['webServer', 'tools', 'systemPrompt', 'userQuestions']
 
 /** Plugin configuration. */
 export interface Config {
@@ -78,26 +78,6 @@ const NO_AGENT_REASON = 'Git push guard: a push command without an owning agent 
 /** Model-facing denial for a subagent call, which cannot open a human interaction. */
 const CHILD_REASON = 'Git push guard: a subagent cannot ask the user for push confirmation, so the push was blocked. '
   + 'Report the requested push to the parent agent instead.'
-
-/** Trust surface consumed here; the browser-side connection package owns the full type. */
-interface ConnectionFence {
-  /**
-   * Apply the deployment's Host/Origin and authentication fence.
-   * @param request - request headers from the HTTP request.
-   * @returns the rejection status, or undefined when the route may accept it.
-   */
-  requestRejection(request: { readonly headers: IncomingMessage['headers'] }): 401 | 403 | undefined
-}
-
-/**
- * Read the composition's Connection service, whose package owns the browser
- * side; this Host plugin consumes only its trust fence.
- * @param ctx - plugin context.
- * @returns the connection fence.
- */
-function connectionOf(ctx: Context): ConnectionFence {
-  return Reflect.get(ctx, 'connection') as ConnectionFence
-}
 
 /** Send one JSON response that the browser must not cache. */
 function sendJson(response: ServerResponse, status: number, payload: unknown, includeBody = true): void {
@@ -144,17 +124,10 @@ function stringField(body: object, field: string): string | undefined {
  * changes the default, and POST `{ enabled, sessionId }` changes one session.
  * @param state - live guard state.
  * @param persist - writes the state after a change.
- * @param connection - the deployment's trust fence.
  * @returns the HTTP route handler.
  */
-function stateRoute(state: MutableGuardState, persist: () => void, connection: ConnectionFence) {
+function stateRoute(state: MutableGuardState, persist: () => void) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
-    const rejection = connection.requestRejection(request)
-    if (rejection !== undefined) {
-      response.statusCode = rejection
-      response.end()
-      return
-    }
     const sessionId = new URL(request.url ?? '/', 'http://localhost').searchParams.get('session') ?? ''
     if (request.method === 'GET' || request.method === 'HEAD') {
       const payload = sessionId === ''
@@ -293,12 +266,15 @@ export function apply(ctx: Context, config: Config = {}): void {
   /* v8 ignore next -- Config normalization supplies defaultEnabled before apply; the fallback serves direct apply() calls. */
   const state = loadGuardState(file, config.defaultEnabled ?? true)
   const persist = (): void => { saveGuardState(file, state) }
-  const connection = connectionOf(ctx)
 
+  // The route admits no anonymous request: the Connection service's
+  // `webserver/authorize` listener applies the deployment's Host/Origin fence
+  // and resolves the browser's session cookie before this handler runs.
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
     path: STATE_ROUTE,
-    handler: stateRoute(state, persist, connection),
+    auth: 'required',
+    handler: stateRoute(state, persist),
   }), 'git-push-guard: state route')
 
   // A new session starts with the current default and then keeps its own choice.

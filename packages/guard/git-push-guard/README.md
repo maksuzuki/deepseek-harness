@@ -64,7 +64,7 @@ The listener reads the command text from the `bash` and `pwsh` tools' `command` 
 
 ### Two independent settings
 
-`stateFile` holds `{ "default": boolean, "sessions": { "<sessionId>": boolean } }`. A Session without a stored choice captures the current default on first use, so changing the default never overrides an existing Session. The Web route serves reads and writes for both levels and calls the `connection` service's `requestRejection` fence before answering, so the Host/Origin and authentication checks owned by Connection gate the browser control. Both settings are separate from the Session's permission preset and approval policy.
+`stateFile` holds `{ "default": boolean, "sessions": { "<sessionId>": boolean } }`. A Session without a stored choice captures the current default on first use, so changing the default never overrides an existing Session. The Web route serves reads and writes for both levels and admits no anonymous request: the Connection service's `webserver/authorize` listener applies the deployment's Host/Origin fence and authenticates the browser session before the handler runs. Both settings are separate from the Session's permission preset and approval policy.
 
 ### Source map
 

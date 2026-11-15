@@ -1,22 +1,22 @@
 import { describe, expect, it, vi } from 'vitest'
-import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
-import { brandString } from '@deepseek-ai/dsh-brand'
+import type { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment/types'
 import type {
   AttachmentStore,
   ImageAttachmentRef,
   ImageRequestTarget,
   RequestImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import { createDeveloperMessage, ToolCallId, createAssistantMessage, createMessage, createToolResultMessage, createUserMessage, offloadedImageText } from '@deepseek-ai/dsh-llm'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import { createDeveloperMessage, type ToolCallId, createAssistantMessage, createMessage, createToolResultMessage, createUserMessage, offloadedImageText } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message, MessageSourceMap, RequestUserInput } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
-import type { AssistantMessage as PiAssistantMessage, Model as PiModel } from '@earendil-works/pi-ai'
-import { clampMaxTokensToContext } from '@earendil-works/pi-ai/api/simple-options'
+import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai'
 import { estimateContextTokens } from '@earendil-works/pi-ai/utils/estimate'
 import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
 import { contextRevisionOf, toPiContext } from '../src/context.ts'
 import type { PiImageRequestContext } from '../src/context.ts'
 import { toPiAssistant, toPiReplayState } from '../src/replay.ts'
+import { bindThinkingToPrefix } from '../src/prefix-binding.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -24,15 +24,8 @@ declare module '@deepseek-ai/dsh-llm' {
   }
 }
 
-function checkpointSource(id: string): MessageSourceMap['compact-checkpoint'] {
-  return {
-    kind: 'compact-checkpoint',
-    compactionId: brandString<MessageSourceMap['compact-checkpoint']['compactionId']>(id),
-  }
-}
-
 const ref: ImageAttachmentRef = {
-  attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`),
+  attachmentId: brandString<AttachmentId>(`sha256:${'a'.repeat(64)}`),
   mediaType: 'image/png',
   bytes: 1,
   width: 1,
@@ -41,7 +34,7 @@ const ref: ImageAttachmentRef = {
 
 function requestImage(value: ImageAttachmentRef, data: Uint8Array): RequestImageAttachment {
   return {
-    variantId: ImageVariantId(`sha256:${'b'.repeat(64)}`),
+    variantId: brandString<ImageVariantId>(`sha256:${'b'.repeat(64)}`),
     attachment: value,
     data,
     mediaType: value.mediaType,
@@ -68,17 +61,28 @@ function projectionStore(
 
 const attachments = projectionStore()
 
-const context32kModel: PiModel<'openai-completions'> = {
-  id: 'gpt-4.1',
-  name: '32K fixture',
-  api: 'openai-completions',
-  provider: 'openai',
-  baseUrl: 'http://127.0.0.1/unused',
-  reasoning: false,
-  input: ['text'],
-  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-  contextWindow: 32_768,
-  maxTokens: 4096,
+function checkpoint(id: string): Message {
+  return createUserMessage({
+    content: [{ type: 'text', text: 'compacted history' }],
+    source: {
+      kind: 'compact-checkpoint',
+      compactionId: brandString<MessageSourceMap['compact-checkpoint']['compactionId']>(id),
+    },
+  })
+}
+
+function usageAssistant(input: number, revision?: string, usageDigest?: string): Message {
+  const native: PiAssistantMessage = {
+    role: 'assistant', content: [{ type: 'text', text: 'retained response' }],
+    api: 'openai-completions', provider: 'openai', model: 'gpt-4.1',
+    usage: { input, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: input,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    stopReason: 'stop', timestamp: 1,
+  }
+  return createAssistantMessage({
+    content: [{ type: 'text', text: 'retained response' }],
+    source: { provider: 'openai', model: 'gpt-4.1', replayState: toPiReplayState(native, native.model, undefined, revision, usageDigest) },
+  })
 }
 
 function imageContext(
@@ -106,82 +110,31 @@ function history(role: 'system' | 'assistant', content: ContentBlock[]): Message
     : createMessage({ role, content, source: { kind: 'model', provider: 'openai', model: 'gpt-4.1' } })
 }
 
-function replayedUsageAssistant(totalTokens: number, contextRevision?: string): Message {
-  const native: PiAssistantMessage = {
-    role: 'assistant',
-    content: [{ type: 'text', text: 'retained response' }],
-    api: 'openai-completions',
-    provider: 'openai',
-    model: 'gpt-4.1',
-    usage: {
-      input: totalTokens,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
-    stopReason: 'stop',
-    timestamp: 1,
-  }
-  return createAssistantMessage({
-    content: [{ type: 'text', text: 'retained response' }],
-    source: { provider: 'openai', model: 'gpt-4.1', replayState: toPiReplayState(native, native.model, contextRevision) },
-  })
-}
-
 describe('pi-ai request context conversion', () => {
-  it('selects the latest valid checkpoint revision in message order', () => {
-    const first = createUserMessage({
-      content: [{ type: 'text', text: 'first summary' }],
-      source: checkpointSource('checkpoint-1'),
-    })
-    const malformed = structuredClone(first)
-    Reflect.set(malformed, 'source', { kind: 'compact-checkpoint', compactionId: 1 })
-    const latest = createUserMessage({
-      content: [{ type: 'text', text: 'latest summary' }],
-      source: checkpointSource('checkpoint-2'),
-    })
-
-    expect(contextRevisionOf([first, malformed, latest])).toBe('checkpoint-2')
-  })
-
-  it('does not reuse pre-checkpoint assistant usage for the compacted prefix', () => {
-    const checkpoint = createUserMessage({
-      content: [{ type: 'text', text: 'compacted history' }],
-      source: checkpointSource('checkpoint-1'),
-    })
+  it('uses the latest valid checkpoint revision and invalidates earlier usage', () => {
+    const earlier = checkpoint('checkpoint-1')
+    const latest = checkpoint('checkpoint-2')
+    expect(contextRevisionOf([earlier, latest])).toBe('checkpoint-2')
     const context = normalizeContext(toPiContext(request([
-      checkpoint,
-      replayedUsageAssistant(26_509),
-      user([{ type: 'text', text: 'r'.repeat(15_736) }]),
+      latest, usageAssistant(26_509), user([{ type: 'text', text: 'r'.repeat(15_736) }]),
     ])))
-
-    expect(estimateContextTokens(context)).toMatchObject({
-      usageTokens: 0,
-      lastUsageIndex: null,
-    })
-    expect(estimateContextTokens(context).tokens).toBeLessThan(32_768 - 4096 - 4096)
-    expect(clampMaxTokensToContext(context32kModel, context, 4096)).toBe(4096)
+    expect(estimateContextTokens(context)).toMatchObject({ usageTokens: 0, lastUsageIndex: null })
   })
 
-  it('keeps usage produced from the current checkpoint revision', () => {
-    const checkpoint = createUserMessage({
-      content: [{ type: 'text', text: 'compacted history' }],
-      source: checkpointSource('checkpoint-1'),
-    })
-    const context = normalizeContext(toPiContext(request([
-      checkpoint,
-      replayedUsageAssistant(8_000, 'checkpoint-1'),
-      user([{ type: 'text', text: 'next request' }]),
-    ])))
-
-    expect(estimateContextTokens(context)).toMatchObject({
-      usageTokens: 8_000,
-      lastUsageIndex: 1,
-    })
+  it('keeps same-revision usage with a matching prefix and safely drops legacy usage without a digest', () => {
+    const route = { provider: 'openai', model: 'gpt-4.1' }
+    const head = checkpoint('checkpoint-1')
+    const prefix = bindThinkingToPrefix(toPiContext(request([head])), 'openai-completions', new Map(), false, () => {}, new Map(), route)
+    const usageDigests = new Map()
+    const current = toPiContext(request([head, usageAssistant(8_000, 'checkpoint-1', prefix.usageDigest)]),
+      undefined, undefined, false, new Map(), usageDigests)
+    const bound = bindThinkingToPrefix(current, 'openai-completions', new Map(), false, () => {}, usageDigests, route)
+    expect(estimateContextTokens(normalizeContext(bound.context))).toMatchObject({ usageTokens: 8_000, lastUsageIndex: 1 })
+    const oldDigests = new Map()
+    const legacy = toPiContext(request([usageAssistant(8_000)]), undefined, undefined, false, new Map(), oldDigests)
+    const oldBound = bindThinkingToPrefix(legacy, 'openai-completions', new Map(), false, () => {}, oldDigests, route)
+    expect(estimateContextTokens(normalizeContext(oldBound.context))).toMatchObject({ usageTokens: 0, lastUsageIndex: null })
   })
-
   it.each(['user', 'system', 'assistant', 'tool'] as const)('rejects tool-change blocks in %s history', (role) => {
     for (const type of ['tool-addition', 'tool-removal'] as const) {
       const message = { id: 'invalid', role, source: { kind: 'test' }, content: [{ type, toolName: 'search' }] } as unknown as Message
@@ -191,8 +144,8 @@ describe('pi-ai request context conversion', () => {
 
   it('preserves the exact context for request-only input after durable tool history', async () => {
     const prefix = [
-      history('assistant', [{ type: 'tool-call', id: ToolCallId('lookup'), name: 'lookup', arguments: '{}' }]),
-      createToolResultMessage({ callId: ToolCallId('lookup'), content: [{ type: 'text', text: 'result' }], isError: false }),
+      history('assistant', [{ type: 'tool-call', id: brandString<ToolCallId>('lookup'), name: 'lookup', arguments: '{}' }]),
+      createToolResultMessage({ callId: brandString<ToolCallId>('lookup'), content: [{ type: 'text', text: 'result' }], isError: false }),
     ]
     const input: RequestUserInput = { role: 'user', content: [{ type: 'text', text: 'review or summarize this input' }] }
     const durable = createUserMessage({ content: input.content, source: { kind: 'test' } })
@@ -214,7 +167,7 @@ describe('pi-ai request context conversion', () => {
   })
 
   it('converts complete text-only history and rejects tool images without storage', () => {
-    const callId = ToolCallId('call-1')
+    const callId = brandString<ToolCallId>('call-1')
     expect(toPiContext(request([
       history('system', [{ type: 'text', text: 'history system' }]),
       history('assistant', [{ type: 'tool-call', id: callId, name: 'lookup', arguments: '{}' }]),
@@ -241,8 +194,8 @@ describe('pi-ai request context conversion', () => {
   })
 
   it('resolves user and tool-result images while preserving explicit fallbacks', async () => {
-    const callId = ToolCallId('missing-call')
-    const knownCallId = ToolCallId('known-call')
+    const callId = brandString<ToolCallId>('missing-call')
+    const knownCallId = brandString<ToolCallId>('known-call')
     const context = await toPiContext(request([
       user([{ type: 'text', text: '' }]),
       history('assistant', [
@@ -318,7 +271,7 @@ describe('pi-ai request context conversion', () => {
   })
 
   it('treats a tool message without isError as a successful result', () => {
-    const callId = ToolCallId('default-success')
+    const callId = brandString<ToolCallId>('default-success')
     const message = createMessage({
       role: 'tool',
       source: { kind: 'tool', callId },
@@ -332,7 +285,7 @@ describe('pi-ai request context conversion', () => {
   })
 
   it('converts tool text and images on the image path', async () => {
-    const callId = ToolCallId('nested-call')
+    const callId = brandString<ToolCallId>('nested-call')
     const context = await toPiContext(request([createToolResultMessage({
       callId,
       content: [
@@ -357,7 +310,7 @@ describe('pi-ai request context conversion', () => {
   })
 
   it('flattens tool text and ignores other block types without storage', () => {
-    const callId = ToolCallId('nested-text')
+    const callId = brandString<ToolCallId>('nested-text')
     expect(toPiContext(request([
       createToolResultMessage({
         callId,
@@ -381,7 +334,7 @@ describe('pi-ai request context conversion', () => {
     ))
     const store = projectionStore(readImageRequest)
     const sized: ImageAttachmentRef = { ...ref, bytes: 3 }
-    const callId = ToolCallId('shot-call')
+    const callId = brandString<ToolCallId>('shot-call')
     // The tool-result occurrence is offloaded on the surface; the two retained 3-byte images cost
     // 4 base64 characters each and fit the 8-byte bound exactly.
     const context = await toPiContext(request([
@@ -424,8 +377,8 @@ describe('pi-ai request context conversion', () => {
     expect(readImageRequest).toHaveBeenCalledTimes(1)
   })
   it('does not prepare a surface-offloaded image', async () => {
-    const old = { ...ref, attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`), bytes: 3 }
-    const recent = { ...ref, attachmentId: AttachmentId(`sha256:${'d'.repeat(64)}`), bytes: 3 }
+    const old = { ...ref, attachmentId: brandString<AttachmentId>(`sha256:${'c'.repeat(64)}`), bytes: 3 }
+    const recent = { ...ref, attachmentId: brandString<AttachmentId>(`sha256:${'d'.repeat(64)}`), bytes: 3 }
     const readImageRequest = vi.fn((value: ImageAttachmentRef) => {
       if (value.attachmentId === old.attachmentId) throw new Error('old image must not be read')
       return Promise.resolve(requestImage(value, Uint8Array.of(1, 2, 3)))
@@ -551,12 +504,12 @@ describe('pi-ai request context conversion', () => {
     expect(readImageRequest).toHaveBeenCalledTimes(2)
   })
   it('keeps empty text-only users while separating result-only messages', () => {
-    const callId = ToolCallId('unknown-call')
+    const callId = brandString<ToolCallId>('unknown-call')
     expect(toPiContext(request([
       user([]),
       history('assistant', [
         { type: 'text', text: 'answer' },
-        { type: 'tool-call', id: ToolCallId('other-call'), name: 'lookup', arguments: '{}' },
+        { type: 'tool-call', id: brandString<ToolCallId>('other-call'), name: 'lookup', arguments: '{}' },
       ]),
       createToolResultMessage({ callId, content: [{ type: 'text', text: 'result' }], isError: false }),
     ]))).toMatchObject({
@@ -690,7 +643,7 @@ describe('pi-ai system prompt source', () => {
   })
 
   it('preserves repeated system updates in history order on both paths', async () => {
-    const callId = ToolCallId('lookup')
+    const callId = brandString<ToolCallId>('lookup')
     const snapshot = history('system', [{ type: 'text', text: 'lead rule\nnew rule' }])
     const options: GenerateOptions = { ...base, system: 'direct', messages: [leading,
       snapshot, question,

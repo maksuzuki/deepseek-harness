@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Context, Service } from '@deepseek-ai/cordis'
-import { AttachmentId, AttachmentStore, ImageVariantId } from '@deepseek-ai/dsh-attachment'
+import { type AttachmentId, AttachmentStore, type ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import type {
   ImageAttachmentLimits,
   ImageAttachmentRef,
@@ -9,16 +9,16 @@ import type {
   SaveImageAttachment,
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import LlmRuntime, { createAssistantMessage, createToolResultMessage, createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, ToolCallId, userAgent } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createToolResultMessage, createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, type ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { DEFAULT_IMAGE_OFFLOAD_COUNT_QUANTUM, DEFAULT_MAX_REQUEST_IMAGE_BYTES, DEFAULT_MAX_REQUEST_IMAGES, resolveProfiles } from '../src/config.ts'
-import { toPiReplayState } from '../src/replay.ts'
 import { memoryAuth } from './auth-double.ts'
 import { assemble } from './assemble.ts'
 import { anthropicTextEvents, closeMockServers, mockServer, textEvents } from './mock-server.ts'
+import { brandString } from '@deepseek-ai/dsh-brand'
 
 afterEach(async () => {
   vi.useRealTimers()
@@ -27,7 +27,7 @@ afterEach(async () => {
 })
 
 const IMAGE_REF: ImageAttachmentRef = {
-  attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`),
+  attachmentId: brandString<AttachmentId>(`sha256:${'a'.repeat(64)}`),
   mediaType: 'image/png',
   bytes: 1,
   width: 1,
@@ -71,7 +71,7 @@ class RequestImageStore extends AttachmentStore {
 
   override readImageRequest(value: ImageAttachmentRef): Promise<RequestImageAttachment> {
     return Promise.resolve({
-      variantId: ImageVariantId(`sha256:${'b'.repeat(64)}`),
+      variantId: brandString<ImageVariantId>(`sha256:${'b'.repeat(64)}`),
       attachment: value,
       data: Uint8Array.of(1),
       mediaType: value.mediaType,
@@ -131,7 +131,7 @@ describe('PiAiAdapter provider routing', () => {
   })
 
   it('sends top-level boolean thinking for declared models and defaults it off', async () => {
-    const server = await mockServer([{ events: textEvents }, { events: textEvents }])
+    const server = await mockServer(Array.from({ length: 4 }, () => ({ events: textEvents })))
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(LlmPiAi, {
@@ -149,8 +149,13 @@ describe('PiAiAdapter provider routing', () => {
       .resolves.toMatchObject({ thinking: { default: false } })
     await assemble(ctx, { provider: 'boolean-gateway', model: 'qwen-boolean', messages: [] })
     await assemble(ctx, { provider: 'boolean-gateway', model: 'qwen-boolean', thinking: true, messages: [] })
+    await assemble(ctx, { provider: 'boolean-gateway', model: 'qwen-boolean', thinking: false, messages: [] })
+    await assemble(ctx, { provider: 'boolean-gateway', model: 'plain', messages: [] })
     expect(server.requests[0]).toMatchObject({ model: 'qwen-boolean', thinking: false })
     expect(server.requests[1]).toMatchObject({ model: 'qwen-boolean', thinking: true })
+    expect(server.requests[2]).toMatchObject({ model: 'qwen-boolean', thinking: false })
+    expect(server.requests[3]).toMatchObject({ model: 'plain' })
+    expect(server.requests[3]).not.toHaveProperty('thinking')
     expect(server.requests[0]).not.toHaveProperty('reasoning_effort')
     expect(server.requests[1]).not.toHaveProperty('reasoning_effort')
 
@@ -160,7 +165,7 @@ describe('PiAiAdapter provider routing', () => {
     expect(unsupported.finish).toMatchObject({
       kind: 'error', failure: { code: 'UNSUPPORTED_THINKING' },
     })
-    expect(server.requests).toHaveLength(2)
+    expect(server.requests).toHaveLength(4)
   })
 
   it('keeps prepared model metadata and dispatch on one profile snapshot', async () => {
@@ -253,14 +258,14 @@ describe('PiAiAdapter provider routing', () => {
 
     await assemble(ctx, {
       model: 'deepseek-flash',
-      reasoningEffort: ReasoningEffortId('high'),
+      reasoningEffort: brandString<ReasoningEffortId>('high'),
       messages: [],
     })
     expect(server.requests[0]).toMatchObject({ reasoning_effort: 'high' })
 
     await assemble(ctx, {
       model: 'deepseek-flash',
-      reasoningEffort: ReasoningEffortId('off'),
+      reasoningEffort: brandString<ReasoningEffortId>('off'),
       messages: [],
     })
     expect(server.requests[1]).toMatchObject({ thinking: { type: 'disabled' } })
@@ -268,7 +273,7 @@ describe('PiAiAdapter provider routing', () => {
 
     const unsupported = await assemble(ctx, {
       model: 'deepseek-flash',
-      reasoningEffort: ReasoningEffortId('xhigh'),
+      reasoningEffort: brandString<ReasoningEffortId>('xhigh'),
       messages: [],
     })
     expect(unsupported.finish).toMatchObject({
@@ -323,112 +328,6 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.requests).toEqual([])
   })
 
-  it.each(['openai-completions', 'openai-responses', 'anthropic-messages'] as const)(
-    'reports an estimated context overflow before %s network I/O',
-    async (api) => {
-      const server = await mockServer([])
-      const ctx = new Context()
-      await ctx.plugin(LlmRuntime)
-      await ctx.plugin(LlmPiAi, {
-        providers: {
-          gateway: {
-            apiKeyEnv: 'PI_TEST_KEY',
-            api,
-            baseURL: `${server.url}/v1`,
-            models: [{
-              id: 'vision-16k',
-              contextWindow: 16_384,
-              maxTokens: 2048,
-              input: ['text', 'image'],
-            }],
-          },
-        },
-      })
-
-      const result = await assemble(ctx, {
-        provider: 'gateway',
-        model: 'vision-16k',
-        maxTokens: 2048,
-        messages: [createUserMessage({
-          content: [{ type: 'text', text: 'u'.repeat(52_500) }],
-          source: { kind: 'user' },
-        })],
-      })
-
-      expect(result.finish).toMatchObject({
-        kind: 'error',
-        failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE },
-      })
-      expect(server.requests).toEqual([])
-    },
-  )
-
-  it('uses replayed provider usage and clamps as a Tool result grows', async () => {
-    const server = await mockServer([
-      { events: textEvents },
-      { events: textEvents },
-      { events: textEvents },
-      { events: textEvents },
-    ])
-    const ctx = new Context()
-    await ctx.plugin(LlmRuntime)
-    await ctx.plugin(LlmPiAi, {
-      providers: {
-        gateway: {
-          apiKeyEnv: 'PI_TEST_KEY',
-          api: 'openai-completions',
-          baseURL: `${server.url}/v1`,
-          models: [{ id: 'vision-16k', contextWindow: 16_384, maxTokens: 2048 }],
-        },
-      },
-    })
-    const callId = ToolCallId('call-1')
-    const replayState = toPiReplayState({
-      role: 'assistant',
-      content: [{ type: 'toolCall', id: callId, name: 'inspect', arguments: {} }],
-      api: 'openai-completions',
-      provider: 'gateway',
-      model: 'vision-16k',
-      usage: {
-        input: 10_172,
-        output: 0,
-        cacheRead: 0,
-        cacheWrite: 0,
-        totalTokens: 10_172,
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-      },
-      stopReason: 'toolUse',
-      timestamp: 0,
-    })
-    const messages = (resultChars: number) => [
-      createAssistantMessage({
-        content: [{ type: 'tool-call', id: callId, name: 'inspect', arguments: '{}' }],
-        source: { provider: 'gateway', model: 'vision-16k', replayState },
-      }),
-      createToolResultMessage({
-        callId,
-        content: [{ type: 'text', text: 'r'.repeat(resultChars) }],
-        isError: false,
-      }),
-    ]
-
-    await assemble(ctx, { provider: 'gateway', model: 'vision-16k', maxTokens: 2048, messages: messages(238) })
-    await assemble(ctx, { provider: 'gateway', model: 'vision-16k', maxTokens: 2048, messages: messages(245) })
-    await assemble(ctx, { provider: 'gateway', model: 'vision-16k', messages: messages(238) })
-    await assemble(ctx, { provider: 'gateway', model: 'vision-16k', maxTokens: 3000, messages: messages(238) })
-    const overflow = await assemble(ctx, {
-      provider: 'gateway', model: 'vision-16k', maxTokens: 2048, messages: messages(7400),
-    })
-
-    expect(server.requests).toMatchObject([
-      { max_completion_tokens: 2048 },
-      { max_completion_tokens: 2046 },
-      { max_completion_tokens: 2048 },
-      { max_completion_tokens: 2048 },
-    ])
-    expect(overflow.finish).toMatchObject({ kind: 'error', failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE } })
-  })
-
   it('uses the catalog API implementation, including OpenAI Responses', async () => {
     const server = await mockServer([{ status: 401, body: JSON.stringify({ error: { message: 'expected mock failure' } }) }])
     const ctx = new Context()
@@ -443,7 +342,7 @@ describe('PiAiAdapter provider routing', () => {
 
   it('resolves attachment and filesystem services mounted after the adapter when dispatching an image', async () => {
     const server = await mockServer([{ status: 401, body: JSON.stringify({ error: { message: 'expected mock failure' } }) }])
-    const attachmentId = AttachmentId(`sha256:${'a'.repeat(64)}`)
+    const attachmentId = brandString<AttachmentId>(`sha256:${'a'.repeat(64)}`)
     const ref: ImageAttachmentRef = {
       attachmentId,
       mediaType: 'image/png',
@@ -459,7 +358,7 @@ describe('PiAiAdapter provider routing', () => {
       _signal?: AbortSignal,
     ): Promise<RequestImageAttachment> => (
       Promise.resolve({
-        variantId: ImageVariantId(`sha256:${'b'.repeat(64)}`),
+        variantId: brandString<ImageVariantId>(`sha256:${'b'.repeat(64)}`),
         attachment: value,
         data: Uint8Array.of(1),
         mediaType: value.mediaType,
@@ -614,6 +513,29 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.paths).toEqual(['/chat/completions'])
   })
 
+  it('classifies a gateway 500 that relays an upstream 401 as SERVER with the rendered message', async () => {
+    vi.stubEnv('PI_TEST_KEY', 'test-key')
+    // The Anthropic SDK renders the whole JSON body after the gateway's own status.
+    const body = JSON.stringify({
+      error: {
+        origin: 'upstream',
+        message: 'upstream returned an error response: User not found.',
+        type: 'upstream_error',
+        upstream: { provider: 'custom', status: 401, body: { error: { message: 'User not found.' } } },
+      },
+    })
+    const server = await mockServer([{ status: 500, body }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        gateway: { apiKeyEnv: 'PI_TEST_KEY', api: 'anthropic-messages', baseURL: server.url, models: [{ id: 'gateway-model' }] },
+      },
+    })
+    const result = await assemble(ctx, { provider: 'gateway', model: 'gateway-model', messages: [] })
+    expect(result.finish).toEqual({ kind: 'error', failure: { message: `500 ${body}`, code: 'SERVER' } })
+  })
+
   it('uses the resolved catalog context window for usage-based overflow detection', async () => {
     const model = getBuiltinModels('deepseek').find(candidate => candidate.id === 'deepseek-flash')
     if (model === undefined) throw new Error('deepseek-flash missing from pi-ai test catalog')
@@ -637,6 +559,24 @@ describe('PiAiAdapter provider routing', () => {
         code: CONTEXT_WINDOW_EXCEEDED_CODE,
       },
     })
+  })
+
+  it('rejects a 32K request before provider dispatch when the reserve leaves one token', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, { providers: {
+      gateway: { apiKeyEnv: 'PI_TEST_KEY', api: 'openai-completions', baseURL: server.url,
+        models: [{ id: 'budget-32k', contextWindow: 32_768, maxTokens: 2048 }] },
+    } })
+    const oversized = await assemble(ctx, { provider: 'gateway', model: 'budget-32k',
+      messages: [createUserMessage({ content: [{ type: 'text', text: 'u'.repeat(Math.floor(28_671 * 3.5)) }], source: { kind: 'user' } })],
+    })
+    expect(oversized.finish).toMatchObject({ kind: 'error', failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE } })
+    expect(server.paths).toEqual([])
+    const accepted = await assemble(ctx, { provider: 'gateway', model: 'budget-32k', messages: [] })
+    expect(accepted.finish).toEqual({ kind: 'stop' })
+    expect(server.paths).toEqual(['/chat/completions'])
   })
 
   it('stops the SDK request when the adapter idle watchdog expires', async () => {
@@ -734,21 +674,21 @@ describe('provider profile lifecycle', () => {
       .resolves.toMatchObject({
         reasoning: {
           efforts: [
-            { id: ReasoningEffortId('off'), name: 'Off' },
-            { id: ReasoningEffortId('low'), name: 'Low' },
-            { id: ReasoningEffortId('high'), name: 'High' },
-            { id: ReasoningEffortId('max'), name: 'Max' },
+            { id: brandString<ReasoningEffortId>('off'), name: 'Off' },
+            { id: brandString<ReasoningEffortId>('low'), name: 'Low' },
+            { id: brandString<ReasoningEffortId>('high'), name: 'High' },
+            { id: brandString<ReasoningEffortId>('max'), name: 'Max' },
           ],
         },
       })
     const extended = await ctx.llm.resolveModelInfo('openai', 'gpt-5.6-sol')
     expect(extended.reasoning?.efforts.map(effort => effort.id)).toEqual([
-      ReasoningEffortId('off'),
-      ReasoningEffortId('low'),
-      ReasoningEffortId('medium'),
-      ReasoningEffortId('high'),
-      ReasoningEffortId('xhigh'),
-      ReasoningEffortId('max'),
+      brandString<ReasoningEffortId>('off'),
+      brandString<ReasoningEffortId>('low'),
+      brandString<ReasoningEffortId>('medium'),
+      brandString<ReasoningEffortId>('high'),
+      brandString<ReasoningEffortId>('xhigh'),
+      brandString<ReasoningEffortId>('max'),
     ])
     // A catalog model without reasoning is the same case as a hand-declared
     // one: pi-ai reports the single level `off`, which translates to omitting
@@ -764,7 +704,7 @@ describe('provider profile lifecycle', () => {
       providers: { deepseek: { reasoning: 'max' } },
     })
     await expect(supported.llm.resolveModelInfo('deepseek', 'deepseek-flash'))
-      .resolves.toMatchObject({ reasoning: { defaultEffort: ReasoningEffortId('max') } })
+      .resolves.toMatchObject({ reasoning: { defaultEffort: brandString<ReasoningEffortId>('max') } })
 
     // A profile level this model cannot take DESCRIBES as no default rather
     // than failing: resolveModelInfo builds the model catalog, and a catalog
@@ -791,7 +731,7 @@ describe('provider profile lifecycle', () => {
       providers: { deepseek: { reasoning: 'off' } },
     })
     await expect(disabled.llm.resolveModelInfo('deepseek', 'deepseek-flash'))
-      .resolves.toMatchObject({ reasoning: { defaultEffort: ReasoningEffortId('off') } })
+      .resolves.toMatchObject({ reasoning: { defaultEffort: brandString<ReasoningEffortId>('off') } })
   })
 
   it('serves declared reasoning efforts to selectors and honours the profile default', async () => {
@@ -819,11 +759,11 @@ describe('provider profile lifecycle', () => {
     await expect(ctx.llm.resolveModelInfo('acme-gateway', 'acme-think')).resolves.toMatchObject({
       reasoning: {
         efforts: [
-          { id: ReasoningEffortId('off'), name: 'Off' },
-          { id: ReasoningEffortId('low'), name: 'Low' },
-          { id: ReasoningEffortId('high'), name: 'High' },
+          { id: brandString<ReasoningEffortId>('off'), name: 'Off' },
+          { id: brandString<ReasoningEffortId>('low'), name: 'Low' },
+          { id: brandString<ReasoningEffortId>('high'), name: 'High' },
         ],
-        defaultEffort: ReasoningEffortId('high'),
+        defaultEffort: brandString<ReasoningEffortId>('high'),
       },
     })
   })
@@ -852,7 +792,7 @@ describe('provider profile lifecycle', () => {
     await assemble(ctx, {
       provider: 'acme-gateway',
       model: 'acme-think',
-      reasoningEffort: ReasoningEffortId('high'),
+      reasoningEffort: brandString<ReasoningEffortId>('high'),
       messages: [],
     })
     // The declared value, not the canonical level name, goes on the wire.
@@ -861,7 +801,7 @@ describe('provider profile lifecycle', () => {
     const undeclared = await assemble(ctx, {
       provider: 'acme-gateway',
       model: 'acme-think',
-      reasoningEffort: ReasoningEffortId('max'),
+      reasoningEffort: brandString<ReasoningEffortId>('max'),
       messages: [],
     })
     expect(undeclared.finish).toMatchObject({
@@ -897,7 +837,7 @@ describe('provider profile lifecycle', () => {
     const prompt = (effort: string): Promise<unknown> => assemble(ctx, {
       provider: 'acme-gateway',
       model: 'acme-think',
-      reasoningEffort: ReasoningEffortId(effort),
+      reasoningEffort: brandString<ReasoningEffortId>(effort),
       messages: [],
     })
 
@@ -935,7 +875,7 @@ describe('provider profile lifecycle', () => {
       await assemble(ctx, {
         provider: 'acme-gateway',
         model,
-        reasoningEffort: ReasoningEffortId('high'),
+        reasoningEffort: brandString<ReasoningEffortId>('high'),
         system: 'you are a harness',
         messages: [],
       })
@@ -976,7 +916,7 @@ describe('provider profile lifecycle', () => {
     await assemble(ctx, {
       provider: 'acme-gateway',
       model: 'acme-think',
-      reasoningEffort: ReasoningEffortId('off'),
+      reasoningEffort: brandString<ReasoningEffortId>('off'),
       messages: [],
     })
     expect(server.requests[0]).toMatchObject({ reasoning_effort: 'none' })
@@ -1007,7 +947,7 @@ describe('provider profile lifecycle', () => {
     await assemble(ctx, {
       provider: 'acme-gateway',
       model: 'acme-think',
-      reasoningEffort: ReasoningEffortId('high'),
+      reasoningEffort: brandString<ReasoningEffortId>('high'),
       messages: [],
     })
     expect(server.requests[0]).not.toHaveProperty('reasoning_effort')
@@ -1041,7 +981,7 @@ describe('provider profile lifecycle', () => {
     const request = (model: string, effort: string): Promise<unknown> => assemble(ctx, {
       provider: 'adaptive-gateway',
       model,
-      reasoningEffort: ReasoningEffortId(effort),
+      reasoningEffort: brandString<ReasoningEffortId>(effort),
       maxTokens: 64,
       messages: [],
     })
@@ -1195,7 +1135,7 @@ describe('provider profile lifecycle', () => {
     await expect((async () => {
       for await (const _chunk of adapter.stream({ provider: 'anthropic', model: 'claude-sonnet-4', messages: [] })) { /* drain */ }
     })()).rejects.toMatchObject({ code: 'NO_ADAPTER' })
-    expect(new LlmError('x', 'X')).toBeInstanceOf(Error)
+    expect(LlmError.fromFailure({ message: 'x', code: 'X' })).toBeInstanceOf(Error)
   })
 
   it('rejects unsupported or unresolved image input before provider I/O', async () => {

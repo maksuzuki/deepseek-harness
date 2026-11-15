@@ -109,7 +109,7 @@ export type {
   SubagentDescriptorData,
 } from './descriptor.ts'
 export { STRUCTURED_OUTPUT_TOOL } from './structured.ts'
-export { SubagentError } from './error.ts'
+export { SubagentError, type SubagentErrorCode } from './error.ts'
 export { assertSubagentMaxDepth, delegationDepthOf } from './depth.ts'
 export {
   appendDelegatedPolicyOverrides,
@@ -118,7 +118,6 @@ export {
   childSessionMeta,
   parentAgentOptionsForDelegation,
   resolveChildAgentOptions,
-  resolveChildLlmOptions,
   resolveChildDepth,
   SubagentDepthError,
 } from './child-agent.ts'

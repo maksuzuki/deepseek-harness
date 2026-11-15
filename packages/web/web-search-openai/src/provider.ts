@@ -130,7 +130,7 @@ export class OpenAIWebSearchProvider implements WebSearchProvider {
       tools: [{
         type: 'web_search',
         search_context_size: options.searchContextSize,
-        // Omission makes the API default to the United States. This explicit empty location sends no inferred location.
+        // Send only the configured country; do not infer one from the host or caller.
         user_location: {
           type: 'approximate',
           ...options.country === undefined ? {} : { country: options.country.toUpperCase() },
@@ -180,7 +180,7 @@ export class OpenAIWebSearchProvider implements WebSearchProvider {
         }
         if (isAbortError(error)) {
           timed.dispose()
-          throw providerError('OpenAI response reading was aborted by the HTTP client', error)
+          throw providerError('OpenAI response reading was aborted by the HTTP client')
         }
       }
       timed.dispose()
@@ -197,9 +197,9 @@ export class OpenAIWebSearchProvider implements WebSearchProvider {
       timed.dispose()
       if (signal?.aborted === true) throw aborted(signal, error)
       if (timed.timedOut()) throw timeoutError(options.timeoutMs, error)
-      if (isAbortError(error)) throw providerError('OpenAI response reading was aborted by the HTTP client', error)
+      if (isAbortError(error)) throw providerError('OpenAI response reading was aborted by the HTTP client')
       if (error instanceof WebError) throw error
-      throw providerError(`OpenAI returned an unprocessable response body: ${String(error)}`, error)
+      throw providerError('OpenAI returned an unprocessable response body')
     }
   }
 }
@@ -330,7 +330,7 @@ async function resolveCredential(
     return await abortable(resolve(), signal)
   } catch (error: unknown) {
     if (signal?.aborted === true || isAbortError(error)) throw aborted(signal, error)
-    throw new WebError(`OpenAI web search credential resolution failed: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
+    throw new WebError('OpenAI web search credential resolution failed', 'WEB_PROVIDER_ERROR')
   }
 }
 
@@ -361,8 +361,8 @@ function timedSignal(signal: AbortSignal | undefined, timeoutMs: number): {
 /** Convert one transport failure without exposing credentials or query text. */
 function transportError(signal: AbortSignal | undefined, timedOut: boolean, timeoutMs: number, error: unknown): WebError {
   if (signal?.aborted === true) return aborted(signal, error)
-  if (timedOut) return timeoutError(timeoutMs, error)
-  return providerError(`OpenAI web search request failed: ${String(error)}`, error)
+  if (timedOut) return timeoutError(timeoutMs)
+  return providerError('OpenAI web search request failed')
 }
 
 /** Report a timeout without request data. */

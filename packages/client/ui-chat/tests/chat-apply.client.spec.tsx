@@ -145,6 +145,13 @@ describe('Chat apply wiring', () => {
       .toEqual(['stats'])
     expect(b.runtime.slots.entries('settings.general.item').map(row => row.options.id))
       .toEqual(['transcript-view', 'link-opening', 'clock-time-zone', 'composer-enter', 'performance-usage'])
+    expect(b.runtime.slots.spec('conversation.chat.markdown.fence')).toMatchObject({ kind: 'hoc', scope: 'session' })
+    expect(b.runtime.slots.entries('conversation.chat.markdown.fence').map(row => [row.options.key, row.options.id]))
+      .toEqual([
+        ['math', '@deepseek-ai/dsh-client-ui-chat/fence/math'],
+        ['diff', '@deepseek-ai/dsh-client-ui-chat/fence/diff'],
+        ['patch', '@deepseek-ai/dsh-client-ui-chat/fence/diff'],
+      ])
     await b.runtime.dispose()
   })
 
@@ -268,7 +275,6 @@ describe('Chat apply wiring', () => {
 
   it('shares one clock-zone preference between the settings row and the Chat view', async () => {
     const b = await bench()
-    onTestFinished(() => b.runtime.dispose())
     const row = b.runtime.slots.entries('settings.general.item').find(entry => entry.options.id === 'clock-time-zone')!
     expect(row.options.order).toBe(18)
     const face = row.inject!() as object as ClockTimeZoneRowInjected
@@ -286,11 +292,11 @@ describe('Chat apply wiring', () => {
       writable: true,
     })
     expect(face.hooks.clockTimeZone.getSnapshot()).toBe('utc')
+    await b.runtime.dispose()
   })
 
   it('shares the accepted performance preference with settings, composer, and turn tails', async () => {
     const b = await bench()
-    onTestFinished(() => b.runtime.dispose())
     const row = b.runtime.slots.entries('settings.general.item').find(entry => entry.options.id === 'performance-usage')!
     const face = (row.inject as unknown as () => PerformanceUsageRowInjected)()
     expect(face.hooks.performanceUsage.getSnapshot()).toBe('detailed')
@@ -305,6 +311,7 @@ describe('Chat apply wiring', () => {
       const injected = (entry.inject as () => Pick<PerformanceUsageRowInjected, 'hooks'>)()
       expect(injected.hooks.performanceUsage).toBe(face.hooks.performanceUsage)
     }
+    await b.runtime.dispose()
   })
 
   it('shares one Chat store while keeping it distinct from Conversation state', async () => {
@@ -320,6 +327,8 @@ describe('Chat apply wiring', () => {
   it('removes only Chat contributions when Chat unloads', async () => {
     const b = await bench()
     await b.chat.dispose()
+    expect(b.runtime.slots.spec('conversation.chat.markdown.fence')).toBeUndefined()
+    expect(b.runtime.slots.entries('conversation.chat.markdown.fence')).toHaveLength(0)
     expect(b.runtime.slots.entries('conversation.view')).toHaveLength(0)
     expect(b.runtime.slots.spec('conversation.chat.node')).toBeUndefined()
     expect(b.runtime.slots.entries('main').map(row => row.options.key)).toEqual(['conversation'])

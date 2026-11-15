@@ -35,7 +35,7 @@ function ctxWith(namespaces: object) {
 
 /** Providers the shipped composition registers, in registration order. */
 const SHIPPED_PROVIDERS = {
-  search: [{ id: 'deepseek-search-api' }, { id: 'openai-web-search', title: 'OpenAI web search' }, { id: 'deepseek-official' }],
+  search: [{ id: 'deepseek-search-api' }, { id: 'deepseek-official' }],
   fetch: [{ id: 'http' }, { id: 'deepseek-fetch-api' }],
 }
 
@@ -118,7 +118,7 @@ const WITH_PLUGINS = {
 async function keyBench(legacy: WebLegacySettings = {}) {
   const b = bench({ accept: true })
   serve(b, { value: LEGACY_SELECTION }, API_DEFAULTS, legacy)
-  await vi.waitFor(() => { expect(b.state().search.options).toHaveLength(3) })
+  await vi.waitFor(() => { expect(b.state().search.options).toHaveLength(2) })
   await Promise.resolve()
   return b
 }
@@ -591,6 +591,101 @@ describe('WebSearchCardController sections', () => {
   })
 })
 
+describe('WebSearchCardController billing', () => {
+  it('shows each billing only while its DeepSeek API is selected, reading an unset billing as automatic', async () => {
+    const b = bench()
+    try {
+      serve(b)
+      await vi.waitFor(() => { expect(b.state().search.kind).toBe('deepseek') })
+      expect(b.state()).toMatchObject({ searchBilling: { value: 'auto', overridden: false }, fetchBilling: undefined })
+      b.face.selectProvider('fetchProvider', 'deepseek-fetch-api')
+      b.face.selectProvider('searchProvider', 'deepseek-official')
+      expect(b.state()).toMatchObject({ searchBilling: undefined, fetchBilling: { value: 'auto', overridden: false } })
+    } finally { b.controller.dispose() }
+  })
+
+  it('reads a stored billing and its override, and an unknown stored value as automatic', async () => {
+    const b = bench()
+    try {
+      serve(b, { value: API_SELECTION, base: API_SELECTION })
+      b.api.publish({ value: { count: 10, searchBilling: 'account', fetchBilling: 'session' as never }, user: { searchBilling: 'account' } })
+      await vi.waitFor(() => { expect(b.state().fetch.kind).toBe('deepseek') })
+      expect(b.state()).toMatchObject({
+        searchBilling: { value: 'account', overridden: true }, fetchBilling: { value: 'auto' },
+      })
+    } finally { b.controller.dispose() }
+  })
+
+  it('saves a selected billing and clears it when the composed billing is selected again', async () => {
+    const b = bench({ accept: true })
+    try {
+      serve(b, { value: API_SELECTION, base: API_SELECTION })
+      await vi.waitFor(() => { expect(b.state().fetch.kind).toBe('deepseek') })
+      b.face.selectBilling('search', 'api-key')
+      expect(b.state()).toMatchObject({ dirty: true, searchBilling: { value: 'api-key', overridden: true } })
+      b.face.save()
+      await vi.waitFor(() => { expect(b.api.mutate).toHaveBeenCalledTimes(1) })
+      expect(b.api.mutate).toHaveBeenCalledWith([{ op: 'set', path: ['searchBilling'], value: 'api-key' }], undefined)
+      await vi.waitFor(() => { expect(b.state().saving).toBe(false) })
+      b.face.selectBilling('search', 'auto')
+      expect(b.state().searchBilling).toEqual({ value: 'auto', overridden: false, advancedOverride: [] })
+      b.face.save()
+      await vi.waitFor(() => { expect(b.api.mutate).toHaveBeenCalledTimes(2) })
+      expect(b.api.mutate).toHaveBeenLastCalledWith([{ op: 'unset', path: ['searchBilling'] }], undefined)
+    } finally { b.controller.dispose() }
+  })
+
+  it('stores automatic billing as an override where the deployment composes another billing', async () => {
+    const b = bench({ accept: true })
+    try {
+      serve(b, { value: API_SELECTION, base: API_SELECTION }, { count: 10, fetchBilling: 'account' })
+      await vi.waitFor(() => { expect(b.state().fetchBilling).toMatchObject({ value: 'account' }) })
+      b.face.selectBilling('fetch', 'account')
+      expect(b.state().dirty).toBe(false)
+      b.face.selectBilling('fetch', 'auto')
+      b.face.save()
+      await vi.waitFor(() => { expect(b.api.mutate).toHaveBeenCalledTimes(1) })
+      expect(b.api.mutate).toHaveBeenCalledWith([{ op: 'set', path: ['fetchBilling'], value: 'auto' }], undefined)
+    } finally { b.controller.dispose() }
+  })
+})
+
+describe('WebSearchCardController advanced override', () => {
+  it('names each capability’s non-empty own endpoint fields, base URL first, and none while they are unset or empty', async () => {
+    const b = bench()
+    try {
+      serve(b, { value: API_SELECTION, base: API_SELECTION })
+      await vi.waitFor(() => { expect(b.state().fetch.kind).toBe('deepseek') })
+      expect(b.state()).toMatchObject({ searchBilling: { advancedOverride: [] }, fetchBilling: { advancedOverride: [] } })
+      b.api.publish({ value: { count: 10, searchApiKeyEnv: 'OWN_KEY', searchBaseURL: 'https://own.test/v1/tools', fetchBaseURL: '' } })
+      expect(b.state().searchBilling?.advancedOverride).toEqual(['searchBaseURL', 'searchApiKeyEnv'])
+      expect(b.state().fetchBilling?.advancedOverride).toEqual([])
+      b.api.publish({ value: { count: 10, fetchApiKeyEnv: 'OWN_KEY' } })
+      expect(b.state().searchBilling?.advancedOverride).toEqual([])
+      expect(b.state().fetchBilling?.advancedOverride).toEqual(['fetchApiKeyEnv'])
+    } finally { b.controller.dispose() }
+  })
+
+  it('saves a billing without writing or clearing the own endpoint fields', async () => {
+    const b = bench({ accept: true })
+    try {
+      const composed = { count: 10, searchBaseURL: 'https://own.test/v1/tools', fetchApiKeyEnv: 'OWN_KEY' }
+      serve(b, { value: API_SELECTION, base: API_SELECTION }, composed)
+      await vi.waitFor(() => { expect(b.state().fetch.kind).toBe('deepseek') })
+      b.face.selectBilling('fetch', 'api-key')
+      b.face.edit('count', '20')
+      b.face.save()
+      await vi.waitFor(() => { expect(b.api.mutate).toHaveBeenCalledTimes(1) })
+      const ops = b.api.mutate.mock.calls[0]![0]
+      expect(ops.map(op => op.path[0]).sort()).toEqual(['count', 'fetchBilling'])
+      await vi.waitFor(() => { expect(b.state().saving).toBe(false) })
+      expect(b.state()).toMatchObject({
+        searchBilling: { advancedOverride: ['searchBaseURL'] }, fetchBilling: { value: 'api-key', advancedOverride: ['fetchApiKeyEnv'] },
+      })
+    } finally { b.controller.dispose() }
+  })
+})
+
 describe('WebSearchCardController providers', () => {
   it('lists the official providers first in a fixed order and plugin providers after them in Host order', async () => {
     const b = bench()
@@ -643,12 +738,11 @@ describe('WebSearchCardController providers', () => {
       })
       b.controller.refreshProviders()
       serve(b, { value: { searchProvider: 'exa', fetchProvider: 'http' } })
-      await vi.waitFor(() => { expect(b.state().search.options).toHaveLength(4) })
+      await vi.waitFor(() => { expect(b.state().search.options).toHaveLength(3) })
       expect(b.state().search).toMatchObject({
         selected: 'exa', kind: 'plugin',
         options: [
           { id: 'deepseek-search-api', missing: false },
-          { id: 'openai-web-search', title: 'OpenAI web search', missing: false },
           { id: 'deepseek-official', missing: false },
           { id: 'exa', title: 'Exa', description: { en: 'Exa search.', zh: 'Exa 搜索' }, missing: false },
         ],
@@ -663,13 +757,40 @@ describe('WebSearchCardController providers', () => {
     } finally { b.controller.dispose() }
   })
 
+  it('offers the registered OpenAI search provider without changing other provider choices', async () => {
+    const b = bench({ accept: true })
+    try {
+      b.credentials.listProviders.mockResolvedValue({
+        ok: true,
+        value: {
+          search: [...SHIPPED_PROVIDERS.search, {
+            id: 'openai-web-search', title: 'OpenAI web search',
+            description: { en: 'OpenAI Responses API web search.' },
+          }],
+          fetch: SHIPPED_PROVIDERS.fetch,
+        },
+      })
+      b.controller.refreshProviders()
+      serve(b)
+      await vi.waitFor(() => { expect(b.state().search.options).toHaveLength(3) })
+      expect(b.state().search.options[2]).toMatchObject({
+        id: 'openai-web-search', title: 'OpenAI web search', missing: false,
+      })
+      b.face.selectProvider('searchProvider', 'openai-web-search')
+      expect(b.state().search).toMatchObject({ selected: 'openai-web-search', kind: 'plugin' })
+      expect(b.state().fetch).toMatchObject({ selected: 'http', kind: 'local' })
+      b.face.selectProvider('searchProvider', 'deepseek-search-api')
+      expect(b.state().search).toMatchObject({ selected: 'deepseek-search-api', kind: 'deepseek' })
+    } finally { b.controller.dispose() }
+  })
+
   it('adds a selected provider the Host does not register without changing the selection', async () => {
     const b = bench()
     try {
       serve(b, { value: { searchProvider: 'perplexity', fetchProvider: 'jina' } })
       await vi.waitFor(() => { expect(b.credentials.listProviders).toHaveBeenCalled() })
-      await vi.waitFor(() => { expect(b.state().search.options).toHaveLength(4) })
-      expect(b.state().search).toMatchObject({ selected: 'perplexity', kind: 'none', options: [{}, {}, {}, { id: 'perplexity', missing: true }] })
+      await vi.waitFor(() => { expect(b.state().search.options).toHaveLength(3) })
+      expect(b.state().search).toMatchObject({ selected: 'perplexity', kind: 'none', options: [{}, {}, { id: 'perplexity', missing: true }] })
       expect(b.state().fetch).toMatchObject({ selected: 'jina', kind: 'none', options: [{}, {}, { id: 'jina', missing: true }] })
       expect(b.state().dirty).toBe(false)
     } finally { b.controller.dispose() }
@@ -691,12 +812,12 @@ describe('WebSearchCardController providers', () => {
     try {
       b.credentials.listProviders.mockResolvedValue({ ok: true, value: WITH_PLUGINS })
       serve(b, { value: { searchProvider: 'exa' } })
-      await vi.waitFor(() => { expect(b.state().search.options).toHaveLength(4) })
+      await vi.waitFor(() => { expect(b.state().search.options).toHaveLength(3) })
       b.credentials.listProviders.mockResolvedValueOnce({ ok: false, error: new RemoteError('gateway/internal', 'down', {}) })
       b.controller.refreshProviders()
       await vi.waitFor(() => { expect(b.credentials.listProviders).toHaveBeenCalledTimes(3) })
       await vi.waitFor(() => { expect(b.state().providersFailed).toBe(true) })
-      expect(b.state().search.options.map(option => option.id)).toEqual(['deepseek-search-api', 'openai-web-search', 'deepseek-official', 'exa'])
+      expect(b.state().search.options.map(option => option.id)).toEqual(['deepseek-search-api', 'deepseek-official', 'exa'])
       b.face.retryProviders()
       await vi.waitFor(() => { expect(b.state().providersFailed).toBe(false) })
       expect(b.credentials.listProviders).toHaveBeenCalledTimes(4)
@@ -715,7 +836,7 @@ describe('WebSearchCardController providers', () => {
       b.credentials.listProviders.mockResolvedValue({ ok: true, value: WITH_PLUGINS })
       b.face.retryProviders()
       await vi.waitFor(() => { expect(b.state()).toMatchObject({ providersFailed: false, search: { kind: 'plugin' } }) })
-      expect(b.state().search.options).toHaveLength(4)
+      expect(b.state().search.options).toHaveLength(3)
     } finally { b.controller.dispose() }
   })
 
@@ -785,7 +906,7 @@ describe('WebSearchCardController provider selection', () => {
     const b = bench({ accept: true })
     try {
       serve(b)
-      await vi.waitFor(() => { expect(b.state().search.options.map(option => option.id)).toEqual(['deepseek-search-api', 'openai-web-search', 'deepseek-official']) })
+      await vi.waitFor(() => { expect(b.state().search.options.map(option => option.id)).toEqual(['deepseek-search-api', 'deepseek-official']) })
       b.face.selectProvider('searchProvider', 'deepseek-official')
       expect(b.state().search).toMatchObject({ kind: 'legacy' })
       b.face.edit('messagesBaseURL', 'https://messages.test/anthropic/v1')
@@ -820,17 +941,17 @@ describe('WebSearchCardController provider selection', () => {
     try {
       b.credentials.listProviders.mockResolvedValue({ ok: true, value: WITH_PLUGINS })
       serve(b)
-      await vi.waitFor(() => { expect(b.state().search.options).toHaveLength(4) })
+      await vi.waitFor(() => { expect(b.state().search.options).toHaveLength(3) })
       expect(b.state()).toMatchObject({ search: { selected: 'deepseek-search-api', kind: 'deepseek' }, fetch: { selected: 'http', kind: 'local' } })
-      b.face.selectProvider('searchProvider', 'openai-web-search')
-      expect(b.state()).toMatchObject({ dirty: true, search: { selected: 'openai-web-search', kind: 'plugin' }, fetch: { selected: 'http' } })
+      b.face.selectProvider('searchProvider', 'exa')
+      expect(b.state()).toMatchObject({ dirty: true, search: { selected: 'exa', kind: 'plugin' }, fetch: { selected: 'http' } })
       expect(b.web.mutate).not.toHaveBeenCalled()
       b.face.discard()
       expect(b.state().search.selected).toBe('deepseek-search-api')
-      b.face.selectProvider('searchProvider', 'openai-web-search')
+      b.face.selectProvider('searchProvider', 'exa')
       b.face.save()
       await vi.waitFor(() => { expect(b.state().dirty).toBe(false) })
-      expect(b.web.mutate).toHaveBeenLastCalledWith([{ op: 'set', path: ['searchProvider'], value: 'openai-web-search' }], undefined)
+      expect(b.web.mutate).toHaveBeenLastCalledWith([{ op: 'set', path: ['searchProvider'], value: 'exa' }], undefined)
       b.face.selectProvider('fetchProvider', 'deepseek-fetch-api')
       b.face.save()
       await vi.waitFor(() => { expect(b.state().dirty).toBe(false) })

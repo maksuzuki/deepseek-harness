@@ -79,11 +79,11 @@ Tool registration follows product enablement, not backend availability: a tool s
 <a id="search-readiness"></a>
 ### Search and fetch readiness
 
-Each model step admits `web_search` and `web_fetch`, and so declares, describes, and dispatches them, only while `ctx.web.searchReady()` and `ctx.web.fetchReady()` answer true for the chat route of the step's model selection. The service asks only the provider that `search()` or `fetch()` would select; a provider that does not implement readiness counts as ready, and a selection failure also answers true, so the stable-registration errors above still reach the model. [`dsh-web-search-deepseek`](../web-search-deepseek/README.md#authentication), [`dsh-web-deepseek-api`](../web-deepseek-api/README.md#authentication), and [`dsh-web-search-openai`](../web-search-openai/README.md#use-this-package) are not ready when the step's operation has no credential. The shipped HTTP fetch provider needs no credential, so `web_fetch` stays admitted while it is selected. The check runs for every step, so a model switch or a newly stored key applies to the next step. A step that does not admit a tool also leaves it out of PTC program bindings, and a call to it fails as `UNKNOWN_TOOL`.
+Each model step admits `web_search` and `web_fetch`, and so declares, describes, and dispatches them, only while `ctx.web.searchReady()` and `ctx.web.fetchReady()` answer true for the chat route of the step's model selection. The service asks only the provider that `search()` or `fetch()` would select; a provider that does not implement readiness counts as ready, and a selection failure also answers true, so the stable-registration errors above still reach the model. [`dsh-web-search-deepseek`](../web-search-deepseek/README.md#authentication) and [`dsh-web-deepseek-api`](../web-deepseek-api/README.md#authentication) are not ready when the step's operation has no credential. The shipped HTTP fetch provider needs no credential, so `web_fetch` stays admitted while it is selected. The check runs for every step, so a model switch or a newly stored key applies to the next step. A step that does not admit a tool also leaves it out of PTC program bindings, and a call to it fails as `UNKNOWN_TOOL`.
 
 ### Failures and recovery
 
-Schema validation rejects an absent or non-array `queries` field, non-string array elements, an oversized array, or a blank URL before execution, with exact messages such as `Error: queries must contain at least one query` and `Error: url must be a non-empty string`. Provider-side failures surface as structured error tool results; the model can read them and decide the next step, for example fetching a cited URL or refining a query.
+Schema validation rejects an absent or non-array `queries` field, non-string array elements, an oversized array, or a blank URL before execution, with exact messages such as `Error: invalid arguments: queries must contain at least one query` and `Error: invalid arguments: url must be a non-empty string`. Provider-side failures surface as structured error tool results; the model can read them and decide the next step, for example fetching a cited URL or refining a query.
 
 -----
 
@@ -255,7 +255,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 #### What the model sees
 
-Schema validation rejects an absent or non-array `queries` field and non-string array elements before execution. Value errors become exactly `Error: queries must contain at least one query`, `Error: queries must contain at most 1 query` when the configured cap is one, `Error: queries must contain at most <count> queries` for larger caps, `Error: each query must be a non-empty string`, or `Error: url must be a non-empty string`.
+Schema validation rejects an absent or non-array `queries` field and non-string array elements before execution. Query and URL value errors fail as `ToolArgsError` with `INVALID_ARGS` and become exactly `Error: invalid arguments: queries must contain at least one query`, `Error: invalid arguments: queries must contain at most 1 query` when the configured cap is one, `Error: invalid arguments: queries must contain at most <count> queries` for larger caps, `Error: invalid arguments: each query must be a non-empty string`, or `Error: invalid arguments: url must be a non-empty string`.
 
 #### Token effect
 

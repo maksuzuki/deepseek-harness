@@ -24,7 +24,6 @@ interface HarnessOptions {
   readonly answer?: 'Allow' | 'Reject' | 'child' | 'unavailable' | 'delegated' | 'object-error'
   readonly abortSignal?: AbortSignal
   readonly stored?: GuardState
-  readonly rejection?: 401 | 403
 }
 
 interface FakeResponse {
@@ -81,7 +80,6 @@ function harness(options: HarnessOptions = {}): Harness {
       return () => { routes.splice(routes.indexOf(route), 1) }
     },
   })
-  ctx.provide('connection', { requestRejection: () => options.rejection })
   ctx.provide('tools', {})
   ctx.provide('systemPrompt', {
     section(section: PromptSection) {
@@ -272,14 +270,6 @@ describe('state route', () => {
     await callRoute(routeOf(harnessed), { ...request, url: undefined }, response)
     expect(response.statusCode).toBe(200)
     expect(response.body).toContain('"default":true')
-  })
-
-  it('applies the connection trust fence', async () => {
-    const harnessed = harness({ rejection: 403 })
-    await mount(harnessed)
-    const response = fakeResponse()
-    await callRoute(routeOf(harnessed), fakeRequest('GET', '/push-guard/state'), response)
-    expect(response.statusCode).toBe(403)
   })
 })
 
@@ -480,7 +470,6 @@ describe('fiber teardown', () => {
         return () => { routes.splice(routes.indexOf(route), 1) }
       },
     })
-    ctx.provide('connection', { requestRejection: () => undefined })
     ctx.provide('tools', {})
     ctx.provide('userQuestions', {
       async ask(request: QuestionRequest) {

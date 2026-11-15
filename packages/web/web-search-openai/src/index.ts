@@ -19,18 +19,6 @@ import {
   type OpenAIWebSearchProviderOptions,
 } from './provider.ts'
 
-export {
-  mapOpenAIResponse,
-  OPENAI_WEB_SEARCH_DEFAULT_CONTEXT_SIZE,
-  OPENAI_WEB_SEARCH_DEFAULT_MAX_OUTPUT_TOKENS,
-  OPENAI_WEB_SEARCH_DEFAULT_MAX_TOOL_CALLS,
-  OPENAI_WEB_SEARCH_DEFAULT_MODEL,
-  OPENAI_WEB_SEARCH_DEFAULT_TIMEOUT_MS,
-  OPENAI_WEB_SEARCH_ENDPOINT,
-  OPENAI_WEB_SEARCH_MIN_OUTPUT_TOKENS,
-  OPENAI_WEB_SEARCH_PROVIDER_ID,
-  OpenAIWebSearchProvider,
-} from './provider.ts'
 export type {
   OpenAIWebSearchContextSize, OpenAIWebSearchLlmRequest, OpenAIWebSearchProviderOptions,
   OpenAIWebSearchRequestBody,
@@ -73,9 +61,6 @@ export const Config = z.object({
   country: z.string().pattern(/^[A-Za-z]{2}$/).volatile(),
   timeoutMs: z.number().step(1).min(1).default(OPENAI_WEB_SEARCH_DEFAULT_TIMEOUT_MS).volatile(),
 })
-
-/** Settings namespace carrying this provider's configuration. */
-export const WEB_SEARCH_OPENAI_SETTINGS_NAMESPACE = 'web-search-openai'
 
 type ResolvedConfig = { [K in keyof Config]: ReturnType<Config[K]['get']> }
 

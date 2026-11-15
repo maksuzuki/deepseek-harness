@@ -10,7 +10,8 @@ import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import {
   DeepSeekHarness,
   HarnessClient,
@@ -314,7 +315,8 @@ describe('DeepSeekHarness', () => {
       cwd: dir,
       provider: 'custom-provider',
       model: 'custom-model',
-      reasoningEffort: ReasoningEffortId('max'),
+      reasoningEffort: brandString<ReasoningEffortId>('max'),
+      thinking: false,
       maxTokens: 4096,
       approvalRequests: true,
     })
@@ -328,6 +330,7 @@ describe('DeepSeekHarness', () => {
       provider: 'custom-provider',
       model: 'custom-model',
       reasoningEffort: 'max',
+      thinking: false,
       maxTokens: 4096,
       approvalRequests: true,
     }])

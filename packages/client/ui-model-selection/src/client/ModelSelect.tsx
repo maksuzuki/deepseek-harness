@@ -39,16 +39,30 @@ import clsx from 'clsx'
 import type { ModelReasoningEffort, ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
 import {
   IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, IconCloseFillRegular,
-  IconDataOutlineRegular, IconWarningOutlineRegular, Input, isMobileDevice, rankByName, StateDot, Tag, Toast,
+  IconDataOutlineRegular, IconWarningOutlineRegular, Input, isMobileDevice, StateDot, Tag, Toast,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ModelLabelOwner, ModelSelectInjected } from './slots.ts'
+import type { ModelLabelOwner, ModelMenuControls, ModelMenuPaneRef, ModelSelectInjected } from './slots.ts'
 import css from './ModelSelect.module.css'
+import { TextSearchIndex } from '@deepseek-ai/dsh-util-text-search'
 import { orderModelProviders } from './provider-order.ts'
 import { activeRoutingWindow, type ModelRouting } from './routing.ts'
 
-/** Which pane the dropdown shows: the root or one drilled-in list. */
-type Pane = 'root' | 'model' | 'effort' | 'thinking'
+/** Which pane the dropdown shows: the root menu, one drilled-in list, or a plugin-owned detail pane. */
+type Pane =
+  | { kind: 'root' }
+  | { kind: 'model' }
+  | { kind: 'effort' }
+  | { kind: 'thinking' }
+  | { kind: 'detail'; pane: ModelMenuPaneRef }
+
+/** Any pane reached by drilling from the root menu. */
+type DrilledPane = Exclude<Pane, { kind: 'root' }>
+
+const ROOT_PANE: Pane = { kind: 'root' }
+const MODEL_PANE: DrilledPane = { kind: 'model' }
+const EFFORT_PANE: DrilledPane = { kind: 'effort' }
+const THINKING_PANE: DrilledPane = { kind: 'thinking' }
 
 /** One dynamic effort row; undefined means preserve the provider default. */
 interface EffortChoice {
@@ -84,14 +98,14 @@ function useRoutingClock(enabled: boolean): number {
 export function ModelSelect(
   { locked, available, directory, load, select, resolveText, t, renderSlot }:
   ModelSelectInjected & Pick<PropsRuntime<'conversation.input.model'>, 'locked'> & PropsLocale<'model'>
-    & Omit<PropsRenderSlots<'conversation.input.model.label' | 'conversation.input.model.options'>, 'SessionProvider'>,
+    & Omit<PropsRenderSlots<'conversation.input.model.label' | 'conversation.input.model.options' | 'conversation.input.model.pane'>, 'SessionProvider'>,
 ) {
   const state = useSyncExternalStore(
     fn => directory.subscribe(fn),
     () => directory.getSnapshot(),
   )
   const [open, setOpen] = useState(false)
-  const [pane, setPane] = useState<Pane>('root')
+  const [pane, setPane] = useState<Pane>(ROOT_PANE)
   const [query, setQuery] = useState('')
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null)
   const [selectionFocus, setSelectionFocus] = useState(false)
@@ -135,9 +149,12 @@ export function ModelSelect(
       } satisfies ModelSelection,
     }))), [groups])
   const showSearch = choices.length > 4
-  const filteredGroups = useMemo(() => groups.map(group => ({
-    ...group, models: rankByName(group.models, showSearch ? query.trim() : ''),
-  })).filter(group => group.models.length > 0), [groups, query, showSearch])
+  const groupIndexes = useMemo(() => groups.map(group => ({
+    group, index: new TextSearchIndex(group.models, model => ({ fuzzy: [model.name, model.id], substring: [model.description] })),
+  })), [groups])
+  const filteredGroups = useMemo(() => groupIndexes.map(({ group, index }) => ({
+    ...group, models: index.search(showSearch ? query : ''),
+  })).filter(group => group.models.length > 0), [groupIndexes, query, showSearch])
   const visibleModels = useMemo(() => filteredGroups.flatMap(group => group.models.map(model => ({
     provider: group.id, model: model.id,
   }))), [filteredGroups])
@@ -153,8 +170,8 @@ export function ModelSelect(
   const activeRoute = routing === undefined ? undefined : activeRoutingWindow(routing, routingNow)
   const reasoning = currentChoice?.model.reasoning
   const thinking = currentChoice?.model.thinking
+  const effectiveThinking = thinking === undefined ? undefined : state.current?.thinking ?? thinking.default
   const effectiveEffort = state.current?.reasoningEffort ?? reasoning?.defaultEffort
-  const effectiveThinking = state.current?.thinking ?? thinking?.default
   const effortLabel = currentChoice === undefined
     ? undefined
     : reasoning === undefined
@@ -190,8 +207,13 @@ export function ModelSelect(
       if (menuRef.current?.contains(event.target as Node) === true) return
       setOpen(false)
     }
+    // WebKit touch taps on non-clickable areas dispatch pointerdown without mousedown.
+    document.addEventListener('pointerdown', closeOutside)
     document.addEventListener('mousedown', closeOutside)
-    return () => { document.removeEventListener('mousedown', closeOutside) }
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside)
+      document.removeEventListener('mousedown', closeOutside)
+    }
   }, [open])
 
   useLayoutEffect(() => {
@@ -203,16 +225,22 @@ export function ModelSelect(
 
   // Pane switches unmount the focused row; restore focus inside the menu so
   // keyboard navigation remains available.
-  const paneFocus = useRef<'drill' | Exclude<Pane, 'root'> | null>(null)
+  const paneFocus = useRef<'drill' | DrilledPane | null>(null)
   const previousShowSearch = useRef(showSearch)
   useEffect(() => {
     const changedSearchMode = previousShowSearch.current !== showSearch
     previousShowSearch.current = showSearch
-    const intent = paneFocus.current ?? (changedSearchMode && pane === 'model' ? 'drill' : null)
+    const intent = paneFocus.current ?? (changedSearchMode && pane.kind === 'model' ? 'drill' : null)
     paneFocus.current = null
     if (!open || intent === null) return
     if (intent === 'drill') {
-      if (pane === 'model' && showSearch && !isMobileDevice()) {
+      if (pane.kind === 'detail') {
+        // A detail pane places its own initial focus (autoFocus commits before
+        // this effect); otherwise the surface keeps the menu's keys reachable.
+        if (menuRef.current?.contains(document.activeElement) !== true) (menuRef.current ?? triggerRef.current)?.focus()
+        return
+      }
+      if (pane.kind === 'model' && showSearch && !isMobileDevice()) {
         searchRef.current?.focus()
         return
       }
@@ -225,8 +253,10 @@ export function ModelSelect(
       ;(target ?? triggerRef.current)?.focus()
       return
     }
-    const index = intent === 'model' ? 0 : intent === 'effort' ? 1 : reasoning === undefined ? 1 : 2
-    const cell = itemRefs.current[index]
+    const cell = intent.kind === 'detail'
+      ? Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[data-model-menu-pane]') ?? [])
+        .find(button => button.dataset.modelMenuPane === intent.pane.key)
+      : itemRefs.current[intent.kind === 'model' ? 0 : intent.kind === 'effort' ? 1 : reasoning === undefined ? 1 : 2]
     ;(cell !== null && cell !== undefined && !cell.disabled ? cell : triggerRef.current)?.focus()
   }, [open, pane, reasoning, showSearch])
 
@@ -237,7 +267,7 @@ export function ModelSelect(
   }, [available, open, pane, filteredGroups])
 
   useLayoutEffect(() => {
-    if (open && pane === 'model' && activeModelIndex >= 0) {
+    if (open && pane.kind === 'model' && activeModelIndex >= 0) {
       itemRefs.current[activeModelIndex]?.scrollIntoView({ block: 'nearest' })
     }
   }, [open, pane, activeModelIndex, visibleModels])
@@ -250,7 +280,7 @@ export function ModelSelect(
     setQuery('')
     setHighlightedIndex(null)
     if (currentChoice === undefined) paneFocus.current = 'drill'
-    setPane(currentChoice === undefined ? 'model' : 'root')
+    setPane(currentChoice === undefined ? MODEL_PANE : ROOT_PANE)
     setOpen(true)
     reload()
   }
@@ -262,7 +292,7 @@ export function ModelSelect(
 
   const close = (restoreFocus = false): void => {
     setOpen(false)
-    setPane('root')
+    setPane(ROOT_PANE)
     if (restoreFocus) queueMicrotask(() => { triggerRef.current?.focus() })
   }
 
@@ -271,7 +301,7 @@ export function ModelSelect(
     close(true)
   }
 
-  const drill = (next: Pane): void => {
+  const drill = (next: DrilledPane): void => {
     setQuery('')
     setHighlightedIndex(null)
     paneFocus.current = 'drill'
@@ -279,9 +309,18 @@ export function ModelSelect(
   }
 
   /** Leave a drilled pane for the root one, handing the keyboard back to its cell. */
-  const back = (from: Exclude<Pane, 'root'>): void => {
+  const back = (from: DrilledPane): void => {
     paneFocus.current = from
-    setPane('root')
+    setPane(ROOT_PANE)
+  }
+
+  const controls: ModelMenuControls = {
+    locked: locked || busy,
+    dismiss: () => {
+      close()
+      triggerRef.current?.focus()
+    },
+    reportFailure: (message) => { setToast({ seq: ++toastSeq.current, text: message }) },
   }
 
   const moveFocus = (offset: number): void => {
@@ -304,12 +343,17 @@ export function ModelSelect(
     if (event.key === 'Escape' && open) {
       event.preventDefault()
       // Escape backs out of a drilled pane first, then closes.
-      if (pane !== 'root' && currentChoice !== undefined) back(pane)
+      if (pane.kind === 'detail' || (pane.kind !== 'root' && currentChoice !== undefined)) back(pane)
       else close(true)
       return
     }
     if (!open) return
-    if (pane === 'model' && showSearch && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+    if (pane.kind === 'detail' && event.key === 'Tab') {
+      event.preventDefault()
+      close(true)
+      return
+    }
+    if (pane.kind === 'model' && showSearch && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
       event.preventDefault()
       if (!busy && visibleModels.length > 0) {
         const direction = event.key === 'ArrowDown' ? 1 : -1
@@ -318,7 +362,7 @@ export function ModelSelect(
       }
       return
     }
-    if (pane === 'model' && showSearch && event.target instanceof HTMLInputElement
+    if (pane.kind === 'model' && showSearch && event.target instanceof HTMLInputElement
       && (event.key === 'Enter' || (event.key === 'Tab' && !event.shiftKey))) {
       if (event.key === 'Tab' && visibleModels.length === 0) return
       event.preventDefault()
@@ -332,7 +376,7 @@ export function ModelSelect(
     if (event.key === 'Tab') {
       if (event.shiftKey) {
         event.preventDefault()
-        if (pane !== 'root' && currentChoice !== undefined) back(pane)
+        if (pane.kind !== 'root' && currentChoice !== undefined) back(pane)
         else close(true)
         return
       }
@@ -351,7 +395,7 @@ export function ModelSelect(
       }
       if (focused !== triggerRef.current) return
       event.preventDefault()
-      if (pane === 'model' && showSearch) {
+      if (pane.kind === 'model' && showSearch) {
         setHighlightedIndex(null)
         searchRef.current?.focus()
         return
@@ -367,6 +411,8 @@ export function ModelSelect(
   }
 
   const onBlur = (event: FocusEvent<HTMLDivElement>): void => {
+    // Clicking explanation text can clear focus without leaving its page.
+    if (pane.kind === 'detail' && event.relatedTarget === null) return
     if (event.relatedTarget instanceof Node && (
       rootRef.current?.contains(event.relatedTarget) === true
       || menuRef.current?.contains(event.relatedTarget) === true
@@ -422,7 +468,8 @@ export function ModelSelect(
   }
 
   const chooseThinking = (value: boolean): void => {
-    if (state.current === null || effectiveThinking === value) {
+    if (state.current === null) return
+    if (effectiveThinking === value) {
       closeAfterSelection()
       return
     }
@@ -453,21 +500,19 @@ export function ModelSelect(
       ? providerName(currentChoice.group)
       : `${groups.find(group => group.id === activeRoute.provider)?.name ?? activeRoute.provider} (${t('trigger.routing')})`
   const modelValue = providerLabel === undefined ? modelLabel : `${providerLabel} · ${modelLabel}`
-  const thinkingLabel = effectiveThinking === undefined
-    ? undefined
-    : effectiveThinking ? t('thinking.on') : t('thinking.off')
+  const thinkingLabel = effectiveThinking === undefined ? undefined : effectiveThinking ? t('thinking.on') : t('thinking.off')
   const triggerLabel = [modelValue, effortLabel, thinkingLabel].filter(value => value !== undefined).join(' · ')
   const triggerAria = (waiting
     ? t('trigger.loading')
     : currentChoice === undefined
       ? t('trigger.selectAria')
-      : effortLabel === undefined && thinkingLabel === undefined
-        ? t('trigger.aria', { model: modelValue })
-        : effortLabel !== undefined && thinkingLabel !== undefined
-          ? t('trigger.ariaEffortThinking', { model: modelValue, effort: effortLabel, thinking: thinkingLabel })
-          : effortLabel !== undefined
-            ? t('trigger.ariaEffort', { model: modelValue, effort: effortLabel })
-            : t('trigger.ariaThinking', { model: modelValue, thinking: thinkingLabel }))
+      : effortLabel !== undefined && thinkingLabel !== undefined
+        ? t('trigger.ariaEffortThinking', { model: modelValue, effort: effortLabel, thinking: thinkingLabel })
+        : effortLabel !== undefined
+          ? t('trigger.ariaEffort', { model: modelValue, effort: effortLabel })
+          : thinkingLabel !== undefined
+            ? t('trigger.ariaThinking', { model: modelValue, thinking: thinkingLabel })
+            : t('trigger.aria', { model: modelValue }))
   const renderModelLabel = (
     provider: ModelLabelOwner['provider'], model: ModelLabelOwner['model'],
     placement: ModelLabelOwner['placement'], selected: boolean,
@@ -548,14 +593,17 @@ export function ModelSelect(
       {open && createPortal(
         <MenuSurface
           ref={menuRef}
+          data-model-menu=""
+          tabIndex={pane.kind === 'detail' ? -1 : undefined}
           id={`${id}-menu`}
-          className={css.menu}
+          className={clsx(css.menu, (pane.kind === 'root' || pane.kind === 'detail') && css.settingsMenu)}
           style={anchorStyle}
-          role={pane === 'model' ? 'group' : 'menu'}
-          aria-label={t('menu.aria')}
+          // A detail pane holds plugin controls and prose, not menu items.
+          role={pane.kind === 'model' || pane.kind === 'detail' ? 'group' : 'menu'}
+          aria-label={pane.kind === 'detail' ? pane.pane.title : t('menu.aria')}
           aria-busy={state.status === 'loading' || busy}
         >
-          {pane === 'root' && (
+          {pane.kind === 'root' && (
             <>
               {providerLabel !== undefined && (
                 <div className={clsx(css.cell, css.cellStatic)}>
@@ -563,7 +611,7 @@ export function ModelSelect(
                   <span className={css.cellValue}>{providerLabel}</span>
                 </div>
               )}
-              <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { drill('model') }}>
+              <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { drill(MODEL_PANE) }}>
                 <span className={css.cellLabel}>{t('menu.model')}</span>
                 <span className={css.cellValue}>
                   {currentChoice === undefined ? modelLabel : renderModelLabel(currentChoice.group.provider, currentChoice.model, 'menu', true)}
@@ -571,31 +619,24 @@ export function ModelSelect(
                 <IconChevronRightOutlineRegular className={css.cellChevron} />
               </button>
               {reasoning !== undefined && (
-                <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { drill('effort') }}>
+                <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { drill(EFFORT_PANE) }}>
                   <span className={css.cellLabel}>{t('menu.effort')}</span>
                   <span className={css.cellValue}>{effortLabel}</span>
                   <IconChevronRightOutlineRegular className={css.cellChevron} />
                 </button>
               )}
               {thinking !== undefined && (
-                <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { drill('thinking') }}>
+                <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { drill(THINKING_PANE) }}>
                   <span className={css.cellLabel}>{t('menu.thinking')}</span>
                   <span className={css.cellValue}>{thinkingLabel}</span>
                   <IconChevronRightOutlineRegular className={css.cellChevron} />
                 </button>
               )}
-              {renderSlot('conversation.input.model.options', {
-                locked: locked || busy,
-                dismiss: () => {
-                  close()
-                  triggerRef.current?.focus()
-                },
-                reportFailure: (message) => { setToast({ seq: ++toastSeq.current, text: message }) },
-              })}
+              {renderSlot('conversation.input.model.options', { ...controls, openPane: (pane) => { drill({ kind: 'detail', pane }) } })}
             </>
           )}
 
-          {pane === 'model' && (
+          {pane.kind === 'model' && (
             <>
               {showSearch && <div className={css.searchRow}>
                 <Input
@@ -698,7 +739,7 @@ export function ModelSelect(
             </>
           )}
 
-          {pane === 'effort' && (
+          {pane.kind === 'effort' && (
             <>
               {state.error !== null && lastActionRef.current === 'load' && (
                 <div className={css.error}>
@@ -734,30 +775,34 @@ export function ModelSelect(
               </div>
             </>
           )}
-
-          {pane === 'thinking' && (
-            [false, true].map(value => (
-              <button
-                ref={itemRef()}
-                type="button"
-                role="menuitemradio"
-                aria-checked={effectiveThinking === value}
-                className={clsx(css.option, effectiveThinking === value && css.selected)}
-                key={String(value)}
-                disabled={busy}
-                onClick={() => { chooseThinking(value) }}
-              >
-                <span className={css.optionCopy}>
-                  <span className={css.modelName}>{value ? t('thinking.on') : t('thinking.off')}</span>
-                </span>
-                <span className={css.check}>
-                  {pending !== null && pending.provider === state.current?.provider
-                    && pending.model === state.current.model && pending.thinking === value
-                    ? <StateDot state="ongoing" />
-                    : effectiveThinking === value ? <IconCheckOutlineRegular /> : null}
-                </span>
-              </button>
-            ))
+          {pane.kind === 'thinking' && (
+            <div className={clsx(css.groups, 'scrollable')}>
+              {[false, true].map(value => (
+                <button
+                  ref={itemRef()}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={effectiveThinking === value}
+                  className={clsx(css.option, effectiveThinking === value && css.selected)}
+                  key={String(value)}
+                  disabled={busy}
+                  onClick={() => { chooseThinking(value) }}
+                >
+                  <span className={css.optionCopy}><span className={css.modelName}>{value ? t('thinking.on') : t('thinking.off')}</span></span>
+                  <span className={css.check}>
+                    {pending !== null && pending.provider === state.current?.provider
+                      && pending.model === state.current.model && pending.thinking === value
+                      ? <StateDot state="ongoing" />
+                      : effectiveThinking === value ? <IconCheckOutlineRegular /> : null}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          {pane.kind === 'detail' && (
+            <div className={clsx(css.groups, 'scrollable')}>
+              {renderSlot('conversation.input.model.pane', controls, { entryKey: pane.pane.key })}
+            </div>
           )}
         </MenuSurface>,
         document.body,

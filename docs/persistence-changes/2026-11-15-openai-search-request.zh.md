@@ -9,7 +9,7 @@ kind: persistence-change
 
 ## 概述
 
-增加持久化的 web/openai-search-llm-request 事件，记录发送前不含秘密的 OpenAI Responses API 搜索请求。
+新增持久化的 web/openai-search-llm-request 事件，记录发送前不含密钥的 OpenAI Responses API 搜索请求。
 
 ## 目录
 
@@ -35,12 +35,12 @@ changes:
 <a id="compatibility"></a>
 ## 兼容性
 
-现有 V4 日志保持有效，且不会补造搜索请求历史。新日志增加一个必需事件类型，其 payload 包含固定的官方 endpoint 和请求 body，但不包含 authorization header 或 API key。旧版本遇到未知事件时会拒绝日志，而不会静默丢弃辅助请求记录。Session header 和所有既有事件 payload 均不变。
+现有 V4 日志仍然有效。新日志增加一个必需事件，其载荷包含固定端点和请求正文，但不包含授权标头或 API 密钥。旧版读取器会拒绝未知的必需事件，而不会静默丢弃请求记录。Session 标头和现有事件载荷保持不变。
 
 <a id="verification"></a>
 ## 验证
 
-Provider、settings、redirect、proxy egress、真实 Loader composition、bundle 和 UI 的集中测试共 118 项通过，并达到逐文件 100% 覆盖率。Settings 测试验证一次实际搜索会追加精确且不含秘密的事件；无密钥 headless snapshot 通过 shipped profile 验证未配置 Provider 的路径。
+提供方、设置、重定向、代理出口、Loader 组合及无密钥 headless 快照测试均已通过。Typecheck 已通过。已配置搜索的测试确认追加事件与实际发送的不含密钥的请求正文一致。
 
 <a id="dev-note"></a>
 ## 开发备注

@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-11-15-boolean-thinking.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-11-15-boolean-thinking.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-11-15-boolean-thinking:
+  en: b0c984642d3a5dd9
+  zh: 2a0b29e1897cb756
+/2026-11-15-boolean-thinking/summary:
+  en: f93e1c7479b56e08
+  zh: f93905b35f986ea1
+/2026-11-15-boolean-thinking/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-11-15-boolean-thinking/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-11-15-boolean-thinking/compatibility:
+  en: 368ad8b96448a19c
+  zh: edc85326c91965db
+/2026-11-15-boolean-thinking/verification:
+  en: 8f3c4d953196e058
+  zh: d0426358550e43d5
+/2026-11-15-boolean-thinking/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

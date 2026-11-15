@@ -28,7 +28,7 @@ kind: "package-group"
 |---|---|---|
 | [`web/`](web/README.zh.md) | 搜索与抓取服务：通过可互换的后端搜索与抓取 URL，统一选择与错误策略 | `ctx.web` |
 | [`web-search-deepseek/`](web-search-deepseek/README.zh.md) | 通过 DeepSeek Messages 搜索网页 | 注册到 `ctx.web` |
-| [`web-search-openai/`](web-search-openai/README.zh.md) | 通过 OpenAI Responses API 托管网页搜索进行搜索 | 注册到 `ctx.web` |
+| [`web-search-openai/`](web-search-openai/README.zh.md) | 通过 OpenAI Responses API 网页搜索 | 注册到 `ctx.web` |
 | [`web-deepseek-api/`](web-deepseek-api/README.zh.md) | 通过 DeepSeek Search 与 Fetch API 搜索和抓取网页 | 注册到 `ctx.web` |
 | [`web-ollama-api/`](web-ollama-api/README.zh.md) | 通过 Ollama Cloud 搜索并抓取网页 | 注册到 `ctx.web` |
 | [`web-fetch-http/`](web-fetch-http/README.zh.md) | 匿名抓取 HTTP(S) 页面 | 注册到 `ctx.web` |

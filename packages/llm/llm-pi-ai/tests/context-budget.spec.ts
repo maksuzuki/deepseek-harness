@@ -100,6 +100,32 @@ function priorUsageWithToolResult(resultChars: number): TranscriptContext {
 }
 
 describe('pi-ai context output budget', () => {
+  it('admits and rejects at the 32K one-token boundary', () => {
+    const fixture = model(32_768)
+    const available = textContext(28_670)
+    const oneToken = textContext(28_671)
+    expect(estimateContextTokens(available).tokens).toBe(28_670)
+    expect(estimateContextTokens(oneToken).tokens).toBe(28_671)
+    expect(clampMaxTokensToContext(fixture, available, 2048)).toBe(2)
+    expect(() => { assertUsefulContextCapacity(fixture, available, 2048) }).not.toThrow()
+    expect(clampMaxTokensToContext(fixture, oneToken, 2048)).toBe(1)
+    expect(() => { assertUsefulContextCapacity(fixture, oneToken, 2048) })
+      .toThrow(expect.objectContaining({ code: CONTEXT_WINDOW_EXCEEDED_CODE }))
+  })
+
+  it('prices tools and a Vision image at the 32K safety boundary', () => {
+    const base = capturedVisionContext()
+    const withTail = (chars: number): TranscriptContext => normalizeContext({
+      messages: [...base.messages, { role: 'user', content: 'u'.repeat(chars), timestamp: 0 }],
+    })
+    const accepted = withTail(55_520)
+    const rejected = withTail(55_524)
+    expect(estimateContextTokens(accepted).tokens).toBe(28_670)
+    expect(estimateContextTokens(rejected).tokens).toBe(28_671)
+    expect(() => { assertUsefulContextCapacity(model(32_768), accepted, 2048) }).not.toThrow()
+    expect(() => { assertUsefulContextCapacity(model(32_768), rejected, 2048) })
+      .toThrow(expect.objectContaining({ code: CONTEXT_WINDOW_EXCEEDED_CODE }))
+  })
   it('reproduces the captured Vision estimate and refuses to discard the safety reserve', () => {
     const context = capturedVisionContext()
     const system = context.messages[0]!

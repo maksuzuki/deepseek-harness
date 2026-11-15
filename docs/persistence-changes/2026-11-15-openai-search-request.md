@@ -9,7 +9,7 @@ English | [中文](2026-11-15-openai-search-request.zh.md)
 
 ## Summary
 
-Adds the durable web/openai-search-llm-request event for the secret-free OpenAI Responses API search request recorded immediately before dispatch.
+Adds the durable web/openai-search-llm-request event for the secret-free OpenAI Responses API search request recorded before dispatch.
 
 ## Table of Contents
 
@@ -35,12 +35,12 @@ changes:
 <a id="compatibility"></a>
 ## Compatibility
 
-Existing V4 logs remain valid and receive no fabricated search-request history. New logs add a required event kind whose payload contains the fixed official endpoint and request body, but no authorization header or API key. Older builds reject logs containing the unknown event instead of silently dropping the auxiliary request record. The Session header and all existing event payloads are unchanged.
+Existing V4 logs remain valid. New logs add a required event whose payload contains the fixed endpoint and request body but no authorization header or API key. Older readers reject an unknown required event instead of silently dropping the request record. The Session header and existing event payloads are unchanged.
 
 <a id="verification"></a>
 ## Verification
 
-The focused provider, settings, redirect, proxy-egress, real Loader-composition, bundle, and UI suites pass 118 tests with per-file 100% coverage. The settings test verifies that a live search appends the exact secret-free event, and the keyless headless snapshot verifies the unconfigured provider path through the shipped profile.
+The provider, settings, redirect, proxy-egress, Loader-composition, and keyless headless snapshot tests passed. Typecheck passed. The configured search test checks that the appended event matches the dispatched secret-free request body.
 
 <a id="dev-note"></a>
 ## Dev Note

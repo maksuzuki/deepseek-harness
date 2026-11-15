@@ -9,7 +9,7 @@ import {
   OPENAI_WEB_SEARCH_PROVIDER_ID,
   OpenAIWebSearchProvider,
   type OpenAIWebSearchProviderOptions,
-} from '@deepseek-ai/dsh-web-search-openai'
+} from '../src/provider.ts'
 
 const options: OpenAIWebSearchProviderOptions = {
   resolveApiKey: async () => 'sk-test',
@@ -434,6 +434,9 @@ describe('OpenAIWebSearchProvider request', () => {
     const active = new AbortController()
     await expect(provider({ resolveApiKey: async () => { throw new Error('vault offline') } }).search({ query: 'q' }, active.signal))
       .rejects.toThrow('credential resolution failed')
+    await expect(provider({ resolveApiKey: async () => { throw new Error('Bearer sk-test') } }).search({ query: 'q' }))
+      .rejects.toSatisfy((error: Error & { cause?: unknown }) =>
+        error.message === 'OpenAI web search credential resolution failed' && error.cause === undefined)
     await expect(provider({ resolveApiKey: async () => { throw new DOMException('stopped', 'AbortError') } }).search({ query: 'q' }))
       .rejects.toMatchObject({ code: 'WEB_ABORTED' })
     const nonErrorResolver = async (): Promise<string | undefined> => {
@@ -460,10 +463,13 @@ describe('OpenAIWebSearchProvider request', () => {
     expect(resolveApiKey).not.toHaveBeenCalled()
   })
 
-  it('maps an ordinary transport failure without request data', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('socket closed') }))
-    await expect(provider().search({ query: 'secret query' })).rejects.toSatisfy((error: Error) =>
-      error.message.includes('socket closed') && !error.message.includes('secret query'))
+  it('keeps credentials and request data out of transport failures', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('Bearer sk-test; secret query') }))
+    await expect(provider().search({ query: 'secret query' })).rejects.toSatisfy((error: Error & { cause?: unknown }) =>
+      error.message.includes('request failed')
+      && !error.message.includes('sk-test')
+      && !error.message.includes('secret query')
+      && error.cause === undefined)
   })
 
   it('rejects malformed JSON and missing credentials without dispatching a second request', async () => {

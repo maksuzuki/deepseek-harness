@@ -48,7 +48,7 @@ kind: "package-reference"
 | `toolName` | `subagent` | 面向模型的工具名称；每个已加载实例必须不同 |
 | `modelSelection` | `false` | 公开可选子级路由字段；要求提供方支持 `agentOptions` |
 | `modelDiscovery` | `false` | 注册 `list_subagent_models`；每个工具作用域仅在一个实例上启用 |
-| `agentOptions` | — | 配置的子级 `provider`、`model`、适配器所有的 `reasoningEffort` 与正整数 `maxTokens` 默认值；要求提供方支持 `agentOptions`，并会覆盖提供方持有的路由默认值 |
+| `agentOptions` | — | 配置的子级 `provider`、`model`、适配器自有的 `reasoningEffort`、明确的布尔 `thinking` 与正整数 `maxTokens` 默认值；要求提供方支持 `agentOptions`，并会覆盖提供方持有的路由默认值 |
 | `agentPreset` | — | 独立子级 preset 的默认 id；要求进程内 spawn |
 | `allowedAgentPresets` | — | 非空 preset-id 白名单，作为模型可选的 `agent_preset` 枚举；与 `agentPreset` 同时配置时必须包含后者 |
 | `maxDepth` | Host 设置（`1`） | 绝对委派深度上限（`0` 禁止委派）；`'provider-managed'` 不向进程外提供方发送上限 |
@@ -94,7 +94,7 @@ kind: "package-reference"
 
 ### Activation 所有权
 
-工具调用 `ctx.subagents.startActivation()`，并选择向父任务交付。运行时拥有启动取消、执行、结果汇报与清理。启动失败产生出错的工具结果；发布后的失败通过完成通知到达，运行时保留诊断和部分输出。
+工具调用 `ctx.subagents.startActivation()`，并选择向父任务交付。运行时拥有启动取消、执行、结果汇报与清理。启动失败产生出错的工具结果。启动前的拒绝都带 code：缺少调用方 Agent、`llm` 服务或有效的父级路由时抛出 `ToolContextUnavailableError`；路由字段为空或未成对提供时抛出 `ToolArgsError`；`SubagentError` 报告选择被禁用（`MODEL_SELECTION_DISABLED`、`PRESET_SELECTION_DISABLED`）、preset 不在允许列表中（`PRESET_NOT_ALLOWED`）、会话未授权该路由（`MODEL_ROUTE_NOT_ALLOWED`）、发现查询的 LLM 提供方未注册（`LLM_PROVIDER_NOT_FOUND`），或路由预检期间提供方被替换（`PROVIDER_CHANGED`）。发布后的失败通过完成通知到达，运行时保留诊断和部分输出。
 
 ### 结果确认
 
@@ -174,7 +174,7 @@ kind: "package-reference"
 ```markdown
 Start independent delegations with `subagent` or `subagent_fork` together in one assistant message and continue useful work while they run. When only waiting for their results remains, end your turn instead of sleeping or polling; the next result starts a new turn. Collect the subagent results required to complete the task before giving the user a final answer.
 
-Agents may use different working directories; changes to shared files affect other agents. Split parallel write work into disjoint file or directory scopes. Bash, formatters, code generators, and scripts can overwrite concurrent edits without conflict detection; coordinate their changes explicitly. The agent integrating the work must review the final diff and run relevant tests.
+Bash, formatters, code generators, and scripts can overwrite concurrent edits without conflict detection; coordinate their changes explicitly. The agent integrating the work must review the final diff and run relevant tests.
 ```
 
 #### Token 影响

@@ -28,10 +28,10 @@ import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import { delegationDepthOf } from './depth.ts'
 import { SubagentError } from './error.ts'
 
-/** Thrown when starting a child would exceed the requested depth cap. */
-export class SubagentDepthError extends Error {
+/** Thrown when starting a child would exceed the requested depth cap; `code` is `DEPTH_EXCEEDED`. */
+export class SubagentDepthError extends SubagentError {
   constructor(public readonly attemptedDepth: number, public readonly maxDepth: number) {
-    super(`subagent depth ${attemptedDepth} exceeds maxDepth ${maxDepth}`)
+    super(`subagent depth ${attemptedDepth} exceeds maxDepth ${maxDepth}`, 'DEPTH_EXCEEDED')
     this.name = 'SubagentDepthError'
   }
 }
@@ -44,12 +44,12 @@ export class SubagentDepthError extends Error {
  * @param maxDepth - optional absolute cap the resolved depth must not exceed.
  * @returns the child's non-negative safe-integer depth.
  * @throws {SubagentDepthError} when the resolved depth exceeds `maxDepth`.
- * @throws {RangeError} when the resolved depth leaves the safe-integer range.
+ * @throws {SubagentError} `INVALID_DEPTH` when the resolved depth leaves the safe-integer range.
  */
 export function resolveChildDepth(parent: Agent, maxDepth: number | undefined): number {
   const childDepth = delegationDepthOf(parent) + 1
   if (!Number.isSafeInteger(childDepth)) {
-    throw new RangeError('subagent child depth exceeds the safe-integer range')
+    throw new SubagentError('subagent child depth exceeds the safe-integer range', 'INVALID_DEPTH')
   }
   if (maxDepth !== undefined && childDepth > maxDepth) {
     throw new SubagentDepthError(childDepth, maxDepth)
@@ -59,14 +59,15 @@ export function resolveChildDepth(parent: Agent, maxDepth: number | undefined): 
 
 /**
  * Resolve the parent values inherited by a child. The latest request header
- * owns provider, model, reasoning effort, and boolean Thinking after request-time selection;
+ * owns provider, model, and reasoning effort after request-time selection;
  * creation options remain the fallback before the first request and retain
  * the configured output-token limit.
  * @param parent - delegating parent Agent.
  * @returns detached Agent options for child-option merging.
  */
 export function parentAgentOptionsForDelegation(parent: Agent): AgentOptions {
-  const requestConfig = parent.session.requestHeader()?.config
+  const header = parent.session.requestHeader()
+  const requestConfig = header?.config
   if (requestConfig === undefined) return { ...parent.options }
   const {
     provider: _createdProvider,
@@ -82,13 +83,14 @@ export function parentAgentOptionsForDelegation(parent: Agent): AgentOptions {
     ...requestConfig.reasoningEffort === undefined
       ? {}
       : { reasoningEffort: requestConfig.reasoningEffort },
-    ...requestConfig.thinking === undefined ? {} : { thinking: requestConfig.thinking },
+    ...requestConfig.thinking === undefined || header?.adapterDefaults?.thinking === true
+      ? {} : { thinking: requestConfig.thinking },
   }
 }
 
 /**
  * Resolve the child's `AgentOptions`: the parent's provider/model,
- * reasoning-effort, boolean Thinking, and maxTokens values unless the request overrides them,
+ * reasoning-effort, and maxTokens values unless the request overrides them,
  * stamped with the child's own delegation depth. Changing the route without
  * naming an effort clears the parent's route-owned effort so the selected
  * model resolves its own default.
@@ -102,24 +104,7 @@ export function resolveChildAgentOptions(
   requested: AgentOptions | undefined,
   childDepth: number,
 ): AgentOptions {
-  return {
-    ...resolveChildLlmOptions(parentAgentOptionsForDelegation(parent), requested),
-    subagentDepth: childDepth,
-  }
-}
-
-/**
- * Merge one parent's current LLM options with child overrides. A route named
- * by the child uses that model's boolean Thinking default when omitted;
- * changing the route also clears an inherited reasoning effort.
- * @param parentOptions - parent values resolved from creation state or the latest request header.
- * @param requested - configured or per-child overrides, if any.
- * @returns detached LLM-facing Agent options for preflight and child creation.
- */
-export function resolveChildLlmOptions(
-  parentOptions: AgentOptions,
-  requested: AgentOptions | undefined,
-): AgentOptions {
+  const parentOptions = parentAgentOptionsForDelegation(parent)
   const parentProvider = parentOptions.provider
   const parentModel = parentOptions.model
   const parentReasoningEffort = parentOptions.reasoningEffort
@@ -132,11 +117,11 @@ export function resolveChildLlmOptions(
     ...parentThinking !== undefined ? { thinking: parentThinking } : {},
     ...parentMaxTokens !== undefined ? { maxTokens: parentMaxTokens } : {},
     ...requested,
+    subagentDepth: childDepth,
   }
   const routeChanged = resolved.provider !== parentProvider || resolved.model !== parentModel
-  const routeSpecified = requested?.provider !== undefined || requested?.model !== undefined
   if (routeChanged && requested?.reasoningEffort === undefined) delete resolved.reasoningEffort
-  if ((routeChanged || routeSpecified) && requested?.thinking === undefined) delete resolved.thinking
+  if (routeChanged && requested?.thinking === undefined) delete resolved.thinking
   return resolved
 }
 
@@ -205,6 +190,9 @@ export const SUBAGENT_DELEGATION_CONTEXT
  * @param parent - creator for fresh delegation; absent during target-only restoration.
  * @param composition - independent preset and any overrides read from a historical descriptor.
  * @returns A promise when mounting an independent preset; otherwise completes synchronously.
+ * @throws {SubagentError} `PRESET_UNAVAILABLE` when a preset is selected but the preset
+ *   service is absent. An unknown or unloadable selected preset rejects with the registry's
+ *   `RemoteError` code.
  */
 export function applyChildComposition(
   childCtx: Context,

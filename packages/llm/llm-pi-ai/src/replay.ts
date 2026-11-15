@@ -12,6 +12,7 @@ import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { AssistantMessage as HarnessAssistantMessage, ModelMessageSource, ReplayEnvelope } from '@deepseek-ai/dsh-llm'
 import type { Api, AssistantMessage, ToolCall, Usage as PiUsage } from '@earendil-works/pi-ai'
 import { calculateContextTokens } from '@earendil-works/pi-ai/utils/estimate'
+import type { PrefixDigests, UsageDigests } from './prefix-binding.ts'
 
 /** Per-block half of the pi-ai replay envelope, one entry per content block. */
 export type PiAiReplayBlock =
@@ -19,7 +20,7 @@ export type PiAiReplayBlock =
   | { type: 'reasoning'; thinkingSignature?: string; redacted?: boolean }
   | { type: 'tool-call'; thoughtSignature?: string; namespace?: string }
 
-/** Provider-reported token counts needed to reuse an exact completed prefix. */
+/** Validated provider counts reusable only within the same compaction revision. */
 interface PiAiReplayUsage {
   input: number
   output: number
@@ -41,11 +42,15 @@ export interface PiAiReplayResponse {
   responseId?: string
   /** Provider-native effort for historical replay; absence is preserved. */
   providerThinkingLevel?: string
-  /** Exact token usage through this response, when the provider reported it. */
+  /** Optional counts from the producing request. */
   usage?: PiAiReplayUsage
-  /** Latest compaction checkpoint included in the request that produced this response. */
+  /** Latest checkpoint included in the producing request. */
   contextRevision?: string
+  /** Request prefix and model identity that reported this usage. */
+  usagePrefixDigest?: string
   stopReason: AssistantMessage['stopReason']
+  /** Digest of the request context this response was generated from; see `prefix-binding.ts`. */
+  prefixDigest?: string
 }
 
 /** The validated halves of one pi-ai replay envelope. */
@@ -67,7 +72,19 @@ function parseArguments(raw: string): ToolCall['arguments'] {
   return {}
 }
 
-/** Construct the usage value required by historical pi-ai messages. */
+/** Construct the zero usage value required by historical pi-ai messages. */
+function emptyPiUsage(): PiUsage {
+  return {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  }
+}
+
+/** Restore validated counts without replaying provider cost estimates. */
 function replayUsage(usage?: PiAiReplayUsage): PiUsage {
   return {
     input: usage?.input ?? 0,
@@ -79,18 +96,14 @@ function replayUsage(usage?: PiAiReplayUsage): PiUsage {
   }
 }
 
-/** Retain only provider usage that can be replayed as trusted token counts. */
+/** Keep only complete, positive counts reported by pi-ai. */
 function replayUsageOf(usage: PiUsage): PiAiReplayUsage | undefined {
   const values = [usage.input, usage.output, usage.cacheRead, usage.cacheWrite, usage.totalTokens]
   if (values.some(value => !Number.isSafeInteger(value) || value < 0)) return undefined
+  if (usage.totalTokens > 0 && usage.totalTokens < usage.input + usage.output + usage.cacheRead + usage.cacheWrite) return undefined
   if (calculateContextTokens(usage) <= 0) return undefined
-  return {
-    input: usage.input,
-    output: usage.output,
-    cacheRead: usage.cacheRead,
-    cacheWrite: usage.cacheWrite,
-    totalTokens: usage.totalTokens,
-  }
+  return { input: usage.input, output: usage.output, cacheRead: usage.cacheRead,
+    cacheWrite: usage.cacheWrite, totalTokens: usage.totalTokens }
 }
 
 /**
@@ -100,13 +113,17 @@ function replayUsageOf(usage: PiUsage): PiAiReplayUsage | undefined {
  * removes one.
  * @param message - completed native pi-ai assistant response.
  * @param requestedModel - request identity stored in the assistant source; defaults to the native model.
+ * @param prefixDigest - digest of the request context, recorded when the protocol binds thinking to it.
  * @param contextRevision - latest checkpoint included in the completed request.
+ * @param usagePrefixDigest - digest of the completed request's converted prefix and model identity.
  * @returns the versioned lossless-JSON replay projection.
  */
 export function toPiReplayState(
   message: AssistantMessage,
   requestedModel = message.model,
+  prefixDigest?: string,
   contextRevision?: string,
+  usagePrefixDigest?: string,
 ): ReplayEnvelope {
   const usage = replayUsageOf(message.usage)
   const response: PiAiReplayResponse = {
@@ -120,7 +137,9 @@ export function toPiReplayState(
     ...message.providerThinkingLevel === undefined ? {} : { providerThinkingLevel: message.providerThinkingLevel },
     ...usage === undefined ? {} : { usage },
     ...contextRevision === undefined ? {} : { contextRevision },
+    ...usage === undefined || usagePrefixDigest === undefined ? {} : { usagePrefixDigest },
     stopReason: message.stopReason,
+    ...prefixDigest === undefined ? {} : { prefixDigest },
   }
   return {
     response,
@@ -167,29 +186,26 @@ function readReplayState(value: unknown): PiAiReplayState {
   if (response['responseModel'] !== undefined && typeof response['responseModel'] !== 'string') return invalidReplay('responseModel must be a string')
   if (response['responseId'] !== undefined && typeof response['responseId'] !== 'string') return invalidReplay('responseId must be a string')
   if (response['providerThinkingLevel'] !== undefined && typeof response['providerThinkingLevel'] !== 'string') return invalidReplay('providerThinkingLevel must be a string')
-  if (response['contextRevision'] !== undefined && typeof response['contextRevision'] !== 'string') return invalidReplay('contextRevision must be a string')
+  if (response['prefixDigest'] !== undefined && typeof response['prefixDigest'] !== 'string') return invalidReplay('prefixDigest must be a string')
+  if (response['contextRevision'] !== undefined && (typeof response['contextRevision'] !== 'string' || response['contextRevision'].length === 0)) return invalidReplay('contextRevision must be a non-empty string')
+  if (response['usagePrefixDigest'] !== undefined
+    && (typeof response['usagePrefixDigest'] !== 'string' || !/^[0-9a-f]{64}$/.test(response['usagePrefixDigest']))) {
+    return invalidReplay('usagePrefixDigest must be a SHA-256 hex digest')
+  }
   const rawUsage = response['usage']
-  let usage: PiAiReplayUsage | undefined
   if (rawUsage !== undefined) {
     if (typeof rawUsage !== 'object' || rawUsage === null || Array.isArray(rawUsage)) return invalidReplay('usage must be an object')
-    const record = rawUsage as Record<string, unknown>
-    const count = (key: keyof PiAiReplayUsage): number => {
-      const value = record[key]
-      if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    const usage = rawUsage as Record<string, unknown>
+    for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens'] as const) {
+      if (typeof usage[key] !== 'number' || !Number.isSafeInteger(usage[key]) || usage[key] < 0) {
         return invalidReplay(`usage ${key} must be a non-negative safe integer`)
       }
-      return value
     }
-    usage = {
-      input: count('input'),
-      output: count('output'),
-      cacheRead: count('cacheRead'),
-      cacheWrite: count('cacheWrite'),
-      totalTokens: count('totalTokens'),
+    const counts = usage as Record<keyof PiAiReplayUsage, number>
+    if (counts.totalTokens > 0 && counts.totalTokens < counts.input + counts.output + counts.cacheRead + counts.cacheWrite) {
+      return invalidReplay('usage totalTokens must cover its components')
     }
-    if (calculateContextTokens({ ...usage, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }) <= 0) {
-      return invalidReplay('usage must report positive context tokens')
-    }
+    if (calculateContextTokens(replayUsage(counts)) <= 0) return invalidReplay('usage must report positive context tokens')
   }
   const blocks = envelope['blocks']
   if (!Array.isArray(blocks)) return invalidReplay('blocks must be an array')
@@ -203,7 +219,7 @@ function readReplayState(value: unknown): PiAiReplayState {
     if (block['redacted'] !== undefined && typeof block['redacted'] !== 'boolean') return invalidReplay(`block ${index} redacted must be boolean`)
   }
   return {
-    response: { ...response as unknown as PiAiReplayResponse, ...usage === undefined ? {} : { usage } },
+    response: response as unknown as PiAiReplayResponse,
     blocks: blocks as PiAiReplayBlock[],
   }
 }
@@ -237,7 +253,7 @@ function foreignAssistant(message: HarnessAssistantMessage): AssistantMessage {
     api: 'dsh-foreign',
     provider: source.provider,
     model: source.model,
-    usage: replayUsage(),
+    usage: emptyPiUsage(),
     stopReason: content.some(piece => piece.type === 'toolCall') ? 'toolUse' : 'stop',
     timestamp: 0,
   }
@@ -248,7 +264,9 @@ function replayedAssistant(
   message: HarnessAssistantMessage,
   source: ModelMessageSource,
   rawState: unknown,
-  contextRevision: string | undefined,
+  prefixDigests?: PrefixDigests,
+  usageDigests?: UsageDigests,
+  contextRevision?: string,
 ): AssistantMessage {
   const state = readReplayState(rawState)
   if (state.response.provider !== source.provider) return invalidReplay('provider does not match assistant source')
@@ -281,7 +299,7 @@ function replayedAssistant(
       default: return invalidReplay(`block ${index} has an unsupported Harness type`)
     }
   })
-  return {
+  const assistant: AssistantMessage = {
     role: 'assistant',
     content,
     api: state.response.api,
@@ -294,6 +312,9 @@ function replayedAssistant(
     stopReason: state.response.stopReason,
     timestamp: 0,
   }
+  if (state.response.prefixDigest !== undefined) prefixDigests?.set(assistant, state.response.prefixDigest)
+  if (state.response.usagePrefixDigest !== undefined) usageDigests?.set(assistant, state.response.usagePrefixDigest)
+  return assistant
 }
 
 /**
@@ -307,18 +328,22 @@ function replayedAssistant(
  * @param message - model-produced assistant content with provider, model, and optional adapter-owned replay metadata.
  * @param onDegrade - called with the diagnostic reason when an unusable replay
  *   state falls back to provider-neutral conversion.
- * @param contextRevision - latest checkpoint in the current request; mismatched historical usage is discarded.
+ * @param prefixDigests - receives the recorded request-prefix digest of the returned message, when replay state has one.
+ * @param contextRevision - latest checkpoint in the current request; mismatched usage is discarded.
+ * @param usageDigests - receives the recorded digest of replayed usage, when present.
  * @returns a native pi-ai assistant message reconstructed from durable content.
  */
 export function toPiAssistant(
   message: HarnessAssistantMessage,
   onDegrade?: (reason: string) => void,
+  prefixDigests?: PrefixDigests,
   contextRevision?: string,
+  usageDigests?: UsageDigests,
 ): AssistantMessage {
   const source = message.source
   if (source.replayState === undefined) return foreignAssistant(message)
   try {
-    return replayedAssistant(message, source, source.replayState, contextRevision)
+    return replayedAssistant(message, source, source.replayState, prefixDigests, usageDigests, contextRevision)
   } catch (error: unknown) {
     /* v8 ignore next -- replayedAssistant throws only INVALID_REPLAY_STATE LlmErrors; the
        guard keeps a future non-replay failure loud instead of silently degrading it */

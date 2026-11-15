@@ -3,7 +3,7 @@ import { getGlobalDispatcher, MockAgent, setGlobalDispatcher } from 'undici'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import {
   OPENAI_WEB_SEARCH_ENDPOINT, OpenAIWebSearchProvider, type OpenAIWebSearchProviderOptions,
-} from '@deepseek-ai/dsh-web-search-openai'
+} from '../src/provider.ts'
 
 let previous: ReturnType<typeof getGlobalDispatcher> | undefined
 let activeAgent: MockAgent | undefined

@@ -25,6 +25,7 @@ export class DeepSeekHarness implements AsyncDisposable {
   private readonly provider: string
   private readonly model: string
   private readonly reasoningEffort: DeepSeekHarnessOptions['reasoningEffort']
+  private readonly thinking: DeepSeekHarnessOptions['thinking']
   private readonly maxTokens: number | undefined
   private readonly approvalRequests: boolean | undefined
   private initialized: Promise<void> | undefined
@@ -42,6 +43,7 @@ export class DeepSeekHarness implements AsyncDisposable {
     this.provider = options.provider ?? 'deepseek-official'
     this.model = options.model ?? 'deepseek-v4-flash'
     this.reasoningEffort = options.reasoningEffort
+    this.thinking = options.thinking
     this.maxTokens = options.maxTokens
     this.approvalRequests = options.approvalRequests
   }
@@ -76,6 +78,7 @@ export class DeepSeekHarness implements AsyncDisposable {
           provider: this.provider,
           model: this.model,
           ...this.reasoningEffort === undefined ? {} : { reasoningEffort: this.reasoningEffort },
+          ...this.thinking === undefined ? {} : { thinking: this.thinking },
           ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
           ...this.approvalRequests === undefined ? {} : { approvalRequests: this.approvalRequests },
         })

@@ -151,9 +151,9 @@ providers:
 
 ### 带推理（reasoning）与协议兼容运行
 
-`reasoningEfforts` 声明模型可选择的 thinking 等级：每个键都是选择器提供的等级，其值是分派时在协议中发送的拼写，因此 `max: ultra` 可以为拥有自有词汇的网关重命名等级。省略该字段时保留已安装目录条目的能力；`false` 声明非推理模型。对于 pi-ai 无法识别的端点，`compat` 开关重塑请求——哪个角色携带系统提示词、哪个字段限制输出、thinking 等级如何传递——可逐路由、逐模型配置。条目与已安装目录都没有尺寸的模型，会采用路由的 `defaultContextWindow` 与 `defaultMaxTokens` 回退值。
+对于接受顶层布尔 `thinking` 的 `openai-completions` 模型，在模型条目中设置 `thinking: true` 或 `thinking: false`。该值同时声明能力和默认值；未选择时使用默认值，Session 中的明确选择覆盖它。其他模型在发送请求前拒绝明确的布尔设置。布尔 Thinking 与 `reasoningEffort` 独立；`off` 仅省略推理参数。
 
-`openai-completions` 模型也可以改为声明 `thinking: false` 或 `thinking: true`。这是独立的 boolean 能力与请求默认值：选择器只提供 Thinking ON/OFF，每次请求都把所选值作为顶层 JSON `thinking` 字段发送。它不能与 `reasoningEfforts` 并存，不会从 `high` 等强度推导，并会在其他协议上被拒绝。网关部署默认值必须保持 OFF 时应使用 `thinking: false`。
+`reasoningEfforts` 声明模型可选择的 thinking 等级：每个键都是选择器提供的等级，其值是分派时在协议中发送的拼写，因此 `max: ultra` 可以为拥有自有词汇的网关重命名等级。省略该字段时保留已安装目录条目的能力；`false` 声明非推理模型。对于 pi-ai 无法识别的端点，`compat` 开关重塑请求——哪个角色携带系统提示词、哪个字段限制输出、thinking 等级如何传递——可逐路由、逐模型配置。条目与已安装目录都没有尺寸的模型，会采用路由的 `defaultContextWindow` 与 `defaultMaxTokens` 回退值。
 
 确切模型元数据将 `reasoning.efforts` 按可选强度从低到高排列。配置函数可从该列表中选择，再由 `prepareCall()` 校验具体强度。适配器只接收解析后的控制项。选择 `off` 不保证禁用推理：以省略推理字段表达该值的协议会沿用网关默认行为。所选等级下产生的推理 token 都计入该请求的输出上限。
 
@@ -165,13 +165,13 @@ providers:
 
 ### 从端点发现模型
 
-插件会回答「该提供方可以提供哪些模型？」，供配置界面正在编辑或起草的路由使用。已安装目录提供的路由——或本构建内置的路由——直接由该目录回答，不发网络请求，并将其 `input` 数组保留为发现结果的 `inputModalities`；只有两者均未描述的路由才会经网络询问。`openai-completions` 与 `openai-responses` 使用带 bearer 鉴权的 `GET {baseURL}/models`，`anthropic-messages` 则以 `x-api-key` 和 `anthropic-version` 使用原生 `GET /v1/models?limit=1000` 语义；其列表 URL 接受带或不带末尾 `/v1` 的 API 根地址，因为网关文档两种写法都会发布，且只有该列表 URL 会归一化这一段，模型请求收到的仍是配置原样的 `baseURL`。已配置且具名的路由会在 Host 内部提供已存凭据与 profile `headers`，因此通过 `cordis.patch.yml` 或 Cordis 配置设置的部署标头可以到达模型发现请求，但不会成为发现请求或 Models 页面的字段；表单中新键入的密钥仍优先于已存凭据。解析器接受标准 `data` 数组或富信息 `models` 对象，并归一化每个候选的 id、显示名、上下文窗口与最大输出 token 数；Anthropic 的 `max_input_tokens` 与 `max_tokens` 会进入相同容量字段，即使对象条目点名了另一个规范 id，对象键仍是请求 id，原始类型的对象属性会被忽略，缺失的显示名则回退到该请求 id。回答是界面可以提供给用户采纳的候选元数据——不存储任何内容，`cordis.patch.yml` 仍然是决定路由服务内容的唯一事实。
+插件会回答「该提供方可以提供哪些模型？」，供配置界面正在编辑或起草的路由使用。已安装目录提供的路由——或本构建内置的路由——直接由该目录回答，不发网络请求，并将其 `input` 数组保留为发现结果的 `inputModalities`；只有两者均未描述的路由才会经网络询问。`openai-completions` 与 `openai-responses` 使用带 bearer 鉴权的 `GET {baseURL}/models`，`anthropic-messages` 则以 `x-api-key` 和 `anthropic-version` 使用原生 `GET /v1/models?limit=1000` 语义；其列表 URL 接受带或不带末尾 `/v1` 的 API 根地址，因为网关文档两种写法都会发布，且只有该列表 URL 会归一化这一段，模型请求收到的仍是配置原样的 `baseURL`。`google-generative-ai` 以 `x-goog-api-key` 使用 `GET {baseURL}/models?pageSize=1000`，因为其 `baseURL` 已包含 API 版本，例如 `/v1beta`。已配置且具名的路由会在 Host 内部提供已存凭据与 profile `headers`，因此通过 `cordis.patch.yml` 或 Cordis 配置设置的部署标头可以到达模型发现请求，但不会成为发现请求或 Models 页面的字段；表单中新键入的密钥仍优先于已存凭据。解析器接受标准 `data` 数组或富信息 `models` 对象，并归一化每个候选的 id、显示名、上下文窗口与最大输出 token 数；Anthropic 的 `max_input_tokens` 与 `max_tokens` 会进入相同容量字段，即使对象条目点名了另一个规范 id，对象键仍是请求 id，原始类型的对象属性会被忽略，缺失的显示名则回退到该请求 id。Gemini 的回答则是 `models` 数组：每个 `name` 去掉 `models/` 前缀后成为请求 id，`displayName`、`inputTokenLimit` 与 `outputTokenLimit` 填入相同字段，`supportedGenerationMethods` 不含 `generateContent` 的条目会被跳过。回答是界面可以提供给用户采纳的候选元数据——不存储任何内容，`cordis.patch.yml` 仍然是决定路由服务内容的唯一事实。
 
 ### 失败与恢复
 
-pi-ai 不提供且本构建未内置的路由需要 `api`、`baseURL` 与非空 `models` 列表；无法服务的 profile 会在写入处被拒绝，并点名路由与模型。内置路由无需其中任何一项，仅声明凭据的 profile 即按原样可服务。失败携带稳定 code：无法使用的凭据以 `INVALID_CREDENTIAL` 失败并点名路由与引用，`apiKeyEnv` 引用解析为空的路由以 `MISSING_CREDENTIAL` 失败，未配置模型以 `UNKNOWN_MODEL` 失败，终止性提供方失败则区分 `QUOTA` 与暂时性 `RATE_LIMIT`。`GenerateOptions.stop` 以 `UNSUPPORTED_OPTION` 被拒绝，因为 pi-ai 的通用流式 UI 无法跨提供方保证它。
+发送前，适配器使用 pi-ai 的最终规范化 transcript、4,096 token 安全余量，以及请求的输出上限或模型默认值检查容量。最终上限至多一个 token 时，返回 `CONTEXT_WINDOW_EXCEEDED`。估算包含工具 schema 与转换后的图片；所有提供方都保留该余量。
 
-pi-ai 在缩减输出上限前预留 4,096 个 token，以防输入估算过低。每个提供方都会保留这段余量：只有估算输入、余量与输出全部能放入声明的上下文窗口时，适配器才发送请求的上限。如果预留后最多只剩一个输出 token，请求会在网络 I/O 前以 `CONTEXT_WINDOW_EXCEEDED` 失败，而不是开始一次单 token 推理。
+pi-ai 不提供且本构建未内置的路由需要 `api`、`baseURL` 与非空 `models` 列表；无法服务的 profile 会在写入处被拒绝，并点名路由与模型。内置路由无需其中任何一项，仅声明凭据的 profile 即按原样可服务。失败携带稳定 code：无法使用的凭据以 `INVALID_CREDENTIAL` 失败并点名路由与引用，`apiKeyEnv` 引用解析为空的路由以 `MISSING_CREDENTIAL` 失败，未配置模型以 `UNKNOWN_MODEL` 失败，终止性提供方失败则区分 `QUOTA` 与暂时性 `RATE_LIMIT`。`GenerateOptions.stop` 以 `UNSUPPORTED_OPTION` 被拒绝，因为 pi-ai 的通用流式 UI 无法跨提供方保证它。
 
 Config 更新严格验证发生变化的 provider。初始加载将已存储的目录故障保留为可编辑的 provider 诊断；未更改的故障 provider 不阻止其他编辑。可用模型仍可选择，无法解析的模型在网络 I/O 前失败。修复或删除问题配置会清除其诊断。
 
@@ -216,9 +216,10 @@ Config 更新严格验证发生变化的 provider。初始加载将已存储的�
 | [`src/models.ts`](src/models.ts) | 基于 pi-ai 窄入口的 model collection、静态 provider 与 reasoning level |
 | [`src/provider.ts`](src/provider.ts) | 受支持协议表与提供方构建 |
 | [`src/context.ts`](src/context.ts) | Harness 到 pi-ai 的上下文转换、图片处理、回放恢复 |
-| [`src/context-budget.ts`](src/context-budget.ts) | 提供方分派前的估算上下文准入检查 |
+| [`src/context-budget.ts`](src/context-budget.ts) | 使用 pi-ai 归一化与输出预留量检查最终请求容量 |
 | [`src/stream.ts`](src/stream.ts) | 把 pi-ai 事件转换为 harness `StreamChunk` 值 |
 | [`src/replay.ts`](src/replay.ts) | 带版本的 `ReplayEnvelope` 存储与校验 |
+| [`src/prefix-binding.ts`](src/prefix-binding.ts) | 回放 usage 与 Anthropic 签名 thinking 的前缀检查 |
 | [`src/discovery.ts`](src/discovery.ts) | 面向配置界面的端点询问 |
 
 ### 注册与目录
@@ -248,7 +249,9 @@ git add packages/llm/llm-pi-ai/src/provider-data.generated.ts
 
 成功 assistant 响应会存储带版本的、无损 JSON 回放状态，与产生它们的提供方和模型放在一起——响应级事实加每个流式块一条逐块条目。请求时，`LlmRuntime` 仅当同一适配器实例拥有两条路由时才传递回放状态；适配器校验它并恢复原生响应 id、提供方签名与可选的 `providerThinkingLevel` effort 元数据，缺失的 effort 元数据仍保持缺失。回放会对照 assistant 来源校验请求模型身份，并用它保留同模型签名；提供方报告的响应模型仅作为诊断元数据。回放状态缺失或无法使用时会降级为提供方无关内容，并保留 assistant 来源中必需的提供方和模型。pi-ai 工具调用参数是解析后的对象，因此适配器解析输入并重新字符串化输出，以符合 harness 原始 JSON 约定；pi-ai 流内错误事件映射为终止 `finish` 分片。 协议转换仅作用于请求副本。从 A 切换到 B 再切回 A 时，存储的内容保持完整，包括空文本块、工具 id、原始块顺序和原生回放元数据；发给不同提供方、API 或模型的请求会省略不受支持的签名和推理块。缺少原生元数据的降级回放也会省略推理。切回原模型时，有效的原生回放会保留已存储的推理。
 
-提供方报告的上下文用量会与生成该响应的请求所包含的最新压缩检查点一起保存在有效回放状态中。下一次请求仅在最新检查点一致时使用精确用量，然后估算工具结果等后续消息。检查点不一致、旧版回放缺少检查点 revision，或降级回放缺少用量时，适配器会估算当前完整历史，而不复用压缩前的前缀。
+完成的响应还会记录经过校验的提供方 token 计数，以及作为 `contextRevision` 的最新压缩检查点。后续请求只有在最新检查点匹配时才重用这些计数；检查点之前的计数归零。所有提供方在重用计数前，还会比较 `usagePrefixDigest` 与重建后的转换上下文前缀和实际模型。Anthropic 另用 `prefixDigest` 决定能否回放已签名 thinking。缺少 `usagePrefixDigest` 的回放状态仍可读取，但不贡献先前 usage；计数或修订元数据损坏时，该 assistant 消息降级为提供方无关内容。
+
+Anthropic 可以将每个已签名 thinking 块绑定到生成它时的请求前缀：系统提示词、工具和此前的消息。执行此检查的账户和请求会拒绝回放过期块的请求。因此，Anthropic Messages 响应会将其请求上下文的 SHA-256 摘要记录为 `prefixDigest`。后续发往其他协议的请求会省略已签名的 Anthropic Thinking；Anthropic Messages 请求会在每个回放响应之前重新计算重建前缀的摘要；摘要不同时，例如在压缩、工具结果裁剪、图片卸载或系统提示词或工具变化之后，省略该响应的已签名 thinking 与 redacted thinking。不含 `prefixDigest` 的回放状态（在此检查出现之前写入）按同样方式处理，从而修复已经失败的对话。文本、工具调用和未签名 thinking 保留；只含已签名 thinking 的响应不再发送。已省略的 thinking 在后续请求中保持省略。手动思考要求工具轮次的最后一个 assistant 轮次以 thinking 块开头，因此当请求启用 thinking 且模型的 compat 未设置 `forceAdaptiveThinking` 时，请求以工具结果延续的工具轮次对应的 assistant 消息会保留其 thinking。
 
 </details>
 
@@ -275,7 +278,7 @@ git add packages/llm/llm-pi-ai/src/provider-data.generated.ts
 
 #### 模型看到什么
 
-所选目录模型会收到系统消息文本、对话历史、工具以及支持的采样字段。目录模型声明 `supportsMidConvoSystemMessages` 时，适配器按历史顺序保留后续系统消息。否则，适配器在传给 pi-ai 之前，将每条非空的后续系统消息转换为以 `<system-reminder>` 包裹的用户消息。包裹文本不会赋予系统角色优先级。单次调用的 `GenerateOptions.system` 放在初始历史提示词之前。重复的系统消息仍会重复发送；空系统消息会被跳过，不会丢弃之前的文本。工具更新能力选择共享的历史声明投影；pi-ai 接收初始可用工具，以及按开发者消息分组的新增和受支持的移除更新。当包含工具更新的 Anthropic 请求中所有投影后的声明均为延迟加载时，初始可用工具为一个占位工具 `DeferredToolPlaceholder`，其描述要求模型永不调用它；若被调用，会得到普通的未知工具结果。Anthropic 在更新消息中以内联方式接收后续工具定义。回放会保留工具调用命名空间，以支持动态加载的 Responses 工具。每张保留图片前都会有文本，注明其完整附件 id 与实际请求尺寸。当前执行文件系统可以映射附件提供方的宿主对象时，该文本还会携带只读规范化对象路径，并警告规范化或请求投影可能缩放或重新编码上传内容。日志中的图片省略决策选中的每个出现位置都会在替换文本中保留自己的身份与当前已解析访问方式，其规范化附件不会读取或变换。当保留的出现位置数量仍超过路由的 `maxRequestImages`，或其精确 base64 载荷超过 `maxRequestImageBytes` 时，调用以 `IMAGE_OFFLOAD_REQUIRED` 失败，由 `dsh-compaction-image-offload` 用 `image/offload` 事件记录所选位置并重试步骤。提供方原生回放元数据只在适配器针对历史内容校验通过后恢复。 `imageRequestTarget(provider, model, image)` 向截图调用方提供与模型请求一致的图片尺寸和字节目标；不缩放图片的适配器保留归一化后的原图。
+所选目录模型会收到系统消息文本、对话历史、工具以及支持的采样字段。目录模型声明 `supportsMidConvoSystemMessages` 时，适配器按历史顺序保留后续系统消息。否则，适配器在传给 pi-ai 之前，将每条非空的后续系统消息转换为以 `<system-reminder>` 包裹的用户消息。包裹文本不会赋予系统角色优先级。单次调用的 `GenerateOptions.system` 放在初始历史提示词之前。重复的系统消息仍会重复发送；空系统消息会被跳过，不会丢弃之前的文本。工具更新能力选择共享的历史声明投影；pi-ai 接收初始可用工具，以及按开发者消息分组的新增和受支持的移除更新。当包含工具更新的 Anthropic 请求中所有投影后的声明均为延迟加载时，初始可用工具为一个占位工具 `DeferredToolPlaceholder`，其描述要求模型永不调用它；若被调用，会得到普通的未知工具结果。Anthropic 在更新消息中以内联方式接收后续工具定义。回放会保留工具调用命名空间，以支持动态加载的 Responses 工具。每张保留图片前都会有文本，注明其完整附件 id 与实际请求尺寸。当前执行文件系统可以映射附件提供方的宿主对象时，该文本还会携带只读规范化对象路径，并警告规范化或请求投影可能缩放或重新编码上传内容。日志中的图片省略决策选中的每个出现位置都会在替换文本中保留自己的身份与当前已解析访问方式，其规范化附件不会读取或变换。当保留的出现位置数量仍超过路由的 `maxRequestImages`，或其精确 base64 载荷超过 `maxRequestImageBytes` 时，调用以 `IMAGE_OFFLOAD_REQUIRED` 失败，由 `dsh-compaction-image-offload` 用 `image/offload` 事件记录所选位置并重试步骤。提供方原生回放元数据只在适配器针对历史内容校验通过后恢复。在 Anthropic Messages 路由上，如果回放响应的请求前缀自生成后发生变化（例如经过压缩），该响应会丢失 thinking 块；其文本和工具调用保留。 `imageRequestTarget(provider, model, image)` 向截图调用方提供与模型请求一致的图片尺寸和字节目标；不缩放图片的适配器保留归一化后的原图。
 
 #### Token 影响
 
@@ -283,7 +286,7 @@ git add packages/llm/llm-pi-ai/src/provider-data.generated.ts
 
 #### KV Cache 影响
 
-传给适配器的后续系统消息不会进入初始提示词，从而保留此前的请求前缀。这不改变 Agent loop 的提示词纳入行为；它仍在不支持原生系统更新的路由上合并更新。转换保持逻辑请求顺序，图片句柄与卸载占位符则会添加模型可见文本。即使附件身份与请求字节保持稳定，执行世界路径变化也会改写历史句柄，并可能从该图片起阻止复用。更换适配器实例、提供方、模型或其他上游 token 具有相同的后缀影响，而 peak 窗口的替代提供方在这一点上就是一次提供方更换：每个窗口的首个请求都会开启新前缀。一次省略决策会把较早图片换成占位文本，因此复用在该消息处结束；省略永不回退，在下一次决策前前缀保持稳定。数量超限时一次省略 `imageOffloadCountQuantum` 张图片，因此饱和路由每新增这么多张图片才让复用在最老的保留图片处结束一次。
+传给适配器的后续系统消息不会进入初始提示词，从而保留此前的请求前缀。这不改变 Agent loop 的提示词纳入行为；它仍在不支持原生系统更新的路由上合并更新。转换保持逻辑请求顺序，图片句柄与卸载占位符则会添加模型可见文本。即使附件身份与请求字节保持稳定，执行世界路径变化也会改写历史句柄，并可能从该图片起阻止复用。更换适配器实例、提供方、模型或其他上游 token 具有相同的后缀影响，而 peak 窗口的替代提供方在这一点上就是一次提供方更换：每个窗口的首个请求都会开启新前缀。省略过期的 Anthropic thinking 发生在前缀变化之后，而该变化已在变化的消息处结束复用。第一个省略无摘要记录的 thinking 的请求会在第一条此类消息处结束复用，且仅发生一次。一次省略决策会把较早图片换成占位文本，因此复用在该消息处结束；省略永不回退，在下一次决策前前缀保持稳定。数量超限时一次省略 `imageOffloadCountQuantum` 张图片，因此饱和路由每新增这么多张图片才让复用在最老的保留图片处结束一次。
 
 ### 提供方响应
 
@@ -317,23 +320,23 @@ pi-ai 事件变成 harness 的推理、文本、工具调用、用量与 finish 
 - **完整替换 Config 可以移除继承的字典条目**——字段重置则恢复其继承值。
 - **`headers` 可以携带 redactor 永远看不到的凭据**——profile 解析会拒绝 Fetch 无法表示的名称与值，但该字典仍是纯字符串；以 `apiKeyEnv` 引用存储凭据。
 - **发现操作不更改已配置模型**——需显式将发现结果采纳到路由配置中。
-- **Anthropic 模型发现最多读取 1,000 个模型**——请求使用 API 的最大页大小，但不会遍历 `has_more`；第一页之外的条目需要手工添加。
+- **Anthropic 与 Gemini 模型发现最多读取 1,000 个模型**——请求使用 API 的最大页大小，但不会遍历 `has_more` 或 `nextPageToken`；第一页之外的条目需要手工添加。
 - **目录外模型需要明确的协议**——目录路由保留每个模型的协议，包括 `azure` 下的两种 Azure API。混合协议目录中不存在的模型需要显式设置路由级 `api`；该设置覆盖路由上的所有模型，且必须属于受支持的自定义协议。Azure 部署名称应通过 `AZURE_OPENAI_DEPLOYMENT_NAME_MAP` 设置，模型 ID 保持为目录中的 ID。
 - **内置路由不携带登录**——`ollama-cloud` 像手工声明路由一样通过 `apiKeyEnv` 或进程环境认证，因为这里不为它提供任何授权流程。
 - **模态声明不受校验**——声明 `image` 而其网关不支持的模型会在提示词准入后被提供方拒绝。持久图片仍留在历史中，同一误声明模型可能再次失败；切换到纯文本模型仍然可行，因为共享 LLM 运行时会针对该请求把图片引用投影为稳定文本。
-- **未认证路由取决于其协议**——不点名凭据的路由解析为已配置但无密钥，但 pi-ai 的 OpenAI 兼容实现仍要求 API 密钥或 `Authorization` 标头，因此无密钥本地服务器需要由 `apiKeyEnv` 引用或 `headers` 中的 `Authorization` 条目提供的占位凭据。
-- **Boolean Thinking 由每个模型显式启用**——没有显式 `thinking` 声明的模型不显示 ON/OFF 控件，也不发送 boolean 字段。该声明只用于顶层 boolean 的 Chat Completions 网关；reasoning effort 仍是独立契约。
+- **未认证路由取决于其协议**——不点名凭据的路由解析为已配置但无密钥，但 pi-ai 的 OpenAI 兼容实现仍要求 API 密钥或 `Authorization` 标头，因此无密钥本地服务器需要由 `apiKeyEnv` 引用或 `headers` 中的 `Authorization` 条目提供的占位凭据。pi-ai 的 Gemini 实现会拒绝没有 API 密钥的请求，因此 `google-generative-ai` 路由始终需要 `apiKeyEnv`，其值以 `x-goog-api-key` 发送。
+- **Gemini 只接受四个推理等级**——在 `google-generative-ai` 上，pi-ai 的 Gemini 实现只发送 `minimal`、`low`、`medium` 或 `high`（不区分大小写），`reasoningEfforts` 的值为其他名称时请求失败；[模型页](../../client/ui-settings-models/README.zh.md)只为此类路由提供这些档位。不带等级的请求（包括 `off`）会发送 pi-ai 的关闭思考配置，无法关闭思考的模型（例如 Gemini 2.5 Pro）可能拒绝该请求。
 - **peak 路由不记录它实际使用的后端**——窗口内处理的请求仍记录配置路由，因此具体提供方只能在该提供方自身的用量记录中看到。
 - **另一适配器路由上的目的地不会复用 replay 状态**——执行适配器收到的是提供方中立历史，因此该窗口内的每次请求都开启新的前缀。
 - **高峰时段是目录数据**——部署无法设置高峰窗口的小时与星期几，因为它们属于提供方公布的价格政策；本构建未随附其政策的模型不能被路由。
 - **不支持 `GenerateOptions.stop`**——pi-ai 的通用流式选项无法跨提供方保证停止序列行为。
 - **对话更新支持只来自已安装的 pi-ai 目录**——原生系统与工具更新需要目录模型的对话中 compat 标志，profile 不能设置这些标志。手工声明的路由与未标记的模型会以用户角色提醒接收后续系统文本，并在每次请求开头接收完整的当前工具列表。
 - **图片只在 user 与工具结果消息中被接受**——system、developer 或 assistant 历史中的图片在两条转换路径上都会以 `UNSUPPORTED_CONTENT` 失败。
-- **上下文准入使用估算值**——pi-ai 在分派前不会运行各提供方的准确 tokenizer，因此当输入低估超过 4,096-token 余量时，提供方仍可能拒绝请求。准确的预先计数依赖具体提供方与协议：受支持的 API 和请求格式并非一种通用 pi-ai 能力。因此所有提供方都会保留这段余量，而估算过高的请求可能会被拒绝，即使提供方本可接受。检测到的提供方溢出以及没有实用安全调整后输出容量的请求都会以 `CONTEXT_WINDOW_EXCEEDED` 报告。
-- **单 token 输出上限会被拒绝**——只要 pi-ai 请求的或经余量缩减后的最终上限为一个 token，DSH 就会报告 `CONTEXT_WINDOW_EXCEEDED`，包括调用方明确请求一个 token 的情况。适配器不会开始一次无法产生实用响应的推理。
-- **提供方 HTTP 状态不可用**——pi-ai 错误事件不跨提供方暴露稳定 HTTP 状态。
+- **提供方 HTTP 状态不可用**——pi-ai 错误事件不跨提供方暴露稳定 HTTP 状态，失败按错误文本分类。信息以 4xx 或 5xx 状态码开头时（Anthropic 与 OpenAI SDK 的错误即如此），状态码规则只读取该状态码。其他格式（如 `Mistral API error (<status>): <body>`）仍会匹配信息中任意位置引用的状态码；配额、限流与无效请求的措辞规则读取整条信息，因此网关在 5xx 响应体中转述上游的 `insufficient_quota` 或 `invalid_request_error` 时，会分类为不重试的 `QUOTA` 或 `INVALID_REQUEST`。
 - **重试策略由提供方自有，而非 SDK 重试**——pi-ai SDK 重试保持禁用，因此持久 agent（智能体）步骤与 `llm/retry` 事件拥有每个可见尝试，直接 `ctx.llm.stream()` 调用仍是单次尝试。
 - **流式 JSON 工具调用参数避免逐 delta 重复解析**——安装的 pi-ai 带有 [`patches/@earendil-works__pi-ai@1.3.0.patch`](../../../patches/@earendil-works__pi-ai@1.3.0.patch)，它移除了每个流适配器中对整段累计参数 JSON 的逐 delta 重新解析（上游 [earendil-works/pi#9265](https://github.com/earendil-works/pi/issues/9265)）；未打补丁时，数 MB 的参数流会在事件循环上消耗 O(n²) CPU，并使进程内所有会话停滞。完成事件提供解析后的参数；Responses 可能在参数完成和输出项完成时分别解析。本适配器只读取 delta 字符串与最终参数。每次升级 pi-ai 时都要重新应用或撤销该补丁。
+- **即使端点会接受，过期的 Anthropic thinking 也会被省略**——前缀检查取决于模型、账户和请求，而适配器无法观测这些因素，因此每次前缀变化以及每个不含 `prefixDigest` 的回放状态都会让模型失去这部分推理，Anthropic 会以输出 token 重新生成它。摘要覆盖 pi-ai 上下文对象，而不是线上请求体：对话中途切换认证或会改变线上请求的 compat 设置不会被检测到；改变 Anthropic 消息序列化的 pi-ai 升级需要在 [`src/prefix-binding.ts`](src/prefix-binding.ts) 中使用新的 `DIGEST_SEED`；本包构建这些对象的方式发生任何变化，都会使已记录的 thinking 被丢弃一次。
+- **跨越前缀变化的手动思考工具轮次仍可能被拒绝**——其未结束的 assistant 消息必须保留过期的 thinking 以满足手动思考要求，因此执行前缀检查的端点会拒绝每个请求，直到一条用户消息结束该轮次。在已安装的目录中，执行此检查的模型使用自适应思考。
 - **Chat Completions 中的 Gemini 工具调用思考签名由补丁保留**——同一补丁把 OpenAI 兼容流式响应里的 `tool_calls[].extra_content.google.thought_signature` 读入工具调用的重放签名，并在同一模型继续时以 `extra_content` 发回（上游 [earendil-works/pi#10157](https://github.com/earendil-works/pi/issues/10157)）；未打补丁时，Gemini 会以 HTTP 400 拒绝工具调用轮次的下一步。OpenRouter 的加密推理详情仍通过 `reasoning_details` 重放。
 
 <a id="dev-note"></a>

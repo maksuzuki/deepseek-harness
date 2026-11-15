@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { installProxyFromEnvironment } from '@deepseek-ai/dsh-http-proxy'
-import { OpenAIWebSearchProvider } from '@deepseek-ai/dsh-web-search-openai'
+import { OpenAIWebSearchProvider } from '../src/provider.ts'
 
 let seen: string[] = []
 let proxy: Server
