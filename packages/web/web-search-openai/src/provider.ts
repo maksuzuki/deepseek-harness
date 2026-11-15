@@ -207,7 +207,7 @@ export class OpenAIWebSearchProvider implements WebSearchProvider {
 /**
  * Map completed search calls and URL citations without treating generated prose as search results.
  * @param response - parsed Responses API body.
- * @returns confirmed, URL-bearing sources in provider order.
+ * @returns confirmed, URL-bearing sources with citations before uncited search sources.
  */
 export function mapOpenAIResponse(response: unknown): WebSearchResult {
   if (!isRecord(response)) throw invalidOpenAIResponse('response must be an object')
@@ -239,7 +239,13 @@ export function mapOpenAIResponse(response: unknown): WebSearchResult {
         const url = optionalNullableString(annotation.url, 'url_citation.url')
         const title = optionalNullableString(annotation.title, 'url_citation.title')
         const key = normalizedHttpUrl(url)
-        if (key !== undefined && typeof url === 'string' && !annotations.has(key)) annotations.set(key, { url, title })
+        if (key === undefined || typeof url !== 'string') continue
+        const existing = annotations.get(key)
+        if (existing === undefined) {
+          annotations.set(key, { url, title })
+        } else if (!hasTitle(existing.title) && hasTitle(title)) {
+          annotations.set(key, { url: existing.url, title })
+        }
       }
     }
   }
@@ -256,6 +262,7 @@ export function mapOpenAIResponse(response: unknown): WebSearchResult {
       ...title === undefined || title === null || title.length === 0 ? {} : { title },
     })
   }
+  for (const annotation of annotations.values()) add(annotation.url, annotation)
   for (const call of searches) {
     for (const source of optionalRecordArray(call.action.sources, 'web_search_call.action.sources')) {
       const url = optionalNullableString(source.url, 'web_search_call.action.sources[].url')
@@ -263,13 +270,17 @@ export function mapOpenAIResponse(response: unknown): WebSearchResult {
       if (key !== undefined && typeof url === 'string') add(url, annotations.get(key))
     }
   }
-  for (const annotation of annotations.values()) add(annotation.url, annotation)
   return { sources, truncated: false }
 }
 
 interface OpenAIAnnotation {
   readonly url: string
   readonly title: string | null | undefined
+}
+
+/** Whether a citation title can label its source. */
+function hasTitle(title: string | null | undefined): title is string {
+  return typeof title === 'string' && title.length > 0
 }
 
 /** Read the small, non-secret error detail fields OpenAI documents. */

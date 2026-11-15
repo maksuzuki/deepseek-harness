@@ -57,7 +57,7 @@ The endpoint is always `https://api.openai.com/v1/responses`. This guarantees th
 
 ### Results and failures
 
-The request sets `tool_choice: "required"`, includes `web_search_call.action.sources`, disables storage with `store: false`, and defaults to one built-in tool call. The provider accepts only a completed response with a completed `web_search_call` whose action is `search`. It combines action source URLs with `url_citation` titles, drops missing, malformed, and non-HTTP(S) URLs, deduplicates normalized URLs, and omits generated answer text and excerpts. The shared web service applies `maxResults` after mapping.
+The request sets `tool_choice: "required"`, includes `web_search_call.action.sources`, disables storage with `store: false`, and defaults to one built-in tool call. The provider accepts only a completed response with a completed `web_search_call` whose action is `search`. It returns valid `url_citation` URLs in citation order, then appends action-only source URLs in source order, preserves available citation titles, drops missing, malformed, and non-HTTP(S) URLs, deduplicates normalized URLs, and omits generated answer text and excerpts. The shared web service applies `maxResults` after mapping.
 
 HTTP failures, credit or spend limits, rate limits, malformed JSON, incomplete responses, timeouts, and credential-read failures produce `WebError`. Caller cancellation is `WEB_ABORTED`. Requests use `redirect: error`, never retry, and never fall back to another search provider.
 

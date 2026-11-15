@@ -57,7 +57,7 @@ kind: "package-reference"
 
 ### 结果与失败
 
-请求设置 `tool_choice: "required"`，包含 `web_search_call.action.sources`，通过 `store: false` 禁用存储，并默认最多调用一次内置工具。提供方只接受状态为 completed、且含有 completed `web_search_call` 搜索 action 的响应。它组合 action source URL 与 `url_citation` 标题，丢弃缺失、格式错误及非 HTTP(S) URL，按规范化 URL 去重，并省略生成的回答文本与摘录。共享 web 服务在映射后应用 `maxResults`。
+请求设置 `tool_choice: "required"`，包含 `web_search_call.action.sources`，通过 `store: false` 禁用存储，并默认最多调用一次内置工具。提供方只接受状态为 completed、且含有 completed `web_search_call` 搜索 action 的响应。它先按引用顺序返回有效的 `url_citation` URL，再按来源顺序追加只存在于 action 中的来源 URL，保留可用的引用标题，丢弃缺失、格式错误及非 HTTP(S) URL，按规范化 URL 去重，并省略生成的回答文本与摘录。共享 web 服务在映射后应用 `maxResults`。
 
 HTTP 失败、余额或支出限制、速率限制、错误 JSON、未完成响应、超时及凭据读取失败都会产生 `WebError`。调用方取消对应 `WEB_ABORTED`。请求使用 `redirect: error`，不会重试，也不会回退到其他搜索提供方。
 

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import WebRuntime from '@deepseek-ai/dsh-web'
+import { formatSearchOutput } from '@deepseek-ai/dsh-tool-web'
 import {
   mapOpenAIResponse,
   OPENAI_WEB_SEARCH_ENDPOINT,
@@ -80,9 +81,54 @@ describe('mapOpenAIResponse', () => {
     expect(mapOpenAIResponse(completedResponse())).toEqual({
       sources: [
         { url: 'https://a.test/article', title: 'Article A' },
-        { url: 'https://b.test/' },
         { url: 'https://c.test/report', title: 'Report C' },
+        { url: 'https://b.test/' },
       ],
+      truncated: false,
+    })
+  })
+
+  it('keeps citation order and prefers non-empty titles for duplicate URLs', () => {
+    expect(mapOpenAIResponse({
+      status: 'completed',
+      output: [
+        {
+          type: 'web_search_call', status: 'completed', action: {
+            type: 'search', sources: [
+              { type: 'url', url: 'https://second.test/' },
+              { type: 'url', url: 'https://first.test/' },
+            ],
+          },
+        },
+        { type: 'message', content: [{ annotations: [
+          { type: 'url_citation', url: 'https://first.test', title: '' },
+          { type: 'url_citation', url: 'https://second.test/', title: 'Second' },
+          { type: 'url_citation', url: 'https://first.test/', title: 'First' },
+          { type: 'url_citation', url: 'https://second.test', title: null },
+        ] }] },
+      ],
+    })).toEqual({
+      sources: [
+        { url: 'https://first.test', title: 'First' },
+        { url: 'https://second.test/', title: 'Second' },
+      ],
+      truncated: false,
+    })
+  })
+
+  it('keeps action source order when the response has no URL citations', () => {
+    expect(mapOpenAIResponse({
+      status: 'completed',
+      output: [{
+        type: 'web_search_call', status: 'completed', action: {
+          type: 'search', sources: [
+            { type: 'url', url: 'https://first.test/' },
+            { type: 'url', url: 'https://second.test/' },
+          ],
+        },
+      }],
+    })).toEqual({
+      sources: [{ url: 'https://first.test/' }, { url: 'https://second.test/' }],
       truncated: false,
     })
   })
@@ -104,7 +150,7 @@ describe('mapOpenAIResponse', () => {
     })).toEqual({ sources: [{ url: 'https://a.test' }], truncated: false })
   })
 
-  it('tolerates omitted message fields and ignores non-citations and duplicate citations', () => {
+  it('tolerates omitted message fields and drops invalid, missing, and non-HTTP citation URLs', () => {
     expect(mapOpenAIResponse({
       status: 'completed',
       output: [
@@ -116,9 +162,12 @@ describe('mapOpenAIResponse', () => {
           { type: 'url_citation', url: 'https://a.test/', title: '' },
           { type: 'url_citation', url: 'https://a.test/', title: 'duplicate' },
           { type: 'url_citation', url: null, title: 'missing' },
+          { type: 'url_citation', title: 'omitted' },
+          { type: 'url_citation', url: 'not a URL', title: 'invalid' },
+          { type: 'url_citation', url: 'file:///secret', title: 'local' },
         ] }] },
       ],
-    })).toEqual({ sources: [{ url: 'https://a.test/' }], truncated: false })
+    })).toEqual({ sources: [{ url: 'https://a.test/', title: 'duplicate' }], truncated: false })
   })
 
   it('accepts documented nulls on optional response collections and citation fields', () => {
@@ -224,9 +273,47 @@ describe('OpenAIWebSearchProvider request', () => {
       await ctx.plugin(WebRuntime, { searchProvider: OPENAI_WEB_SEARCH_PROVIDER_ID })
       ctx.web.registerSearchProvider(provider())
       await expect(ctx.web.search({ query: 'q', maxResults: 2 })).resolves.toMatchObject({
-        sources: [{ url: 'https://a.test/article', title: 'Article A' }, { url: 'https://b.test/' }],
+        sources: [
+          { url: 'https://a.test/article', title: 'Article A' },
+          { url: 'https://c.test/report', title: 'Report C' },
+        ],
         truncated: true,
       })
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('keeps cited sources visible through ctx.web and dsh-tool-web at the ten-result limit', async () => {
+    const actionSources = Array.from({ length: 12 }, (_, index) => ({
+      type: 'url', url: `https://source-${index}.test/`,
+    }))
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      status: 'completed',
+      output: [
+        {
+          type: 'web_search_call', status: 'completed', action: {
+            type: 'search', sources: actionSources,
+          },
+        },
+        { type: 'message', content: [{ annotations: [
+          { type: 'url_citation', url: 'https://source-11.test/', title: 'Cited source 11' },
+          { type: 'url_citation', url: 'https://citation-only.test/', title: 'Citation only' },
+        ] }] },
+      ],
+    })))
+    const ctx = new Context()
+    try {
+      await ctx.plugin(WebRuntime, { searchProvider: OPENAI_WEB_SEARCH_PROVIDER_ID })
+      ctx.web.registerSearchProvider(provider())
+      const result = await ctx.web.search({ query: 'q', maxResults: 10 })
+      expect(result.sources).toHaveLength(10)
+      expect(result.sources.slice(0, 2)).toEqual([
+        { url: 'https://source-11.test/', title: 'Cited source 11' },
+        { url: 'https://citation-only.test/', title: 'Citation only' },
+      ])
+      expect(result.truncated).toBe(true)
+      const rendered = formatSearchOutput(result)
+      expect(rendered.indexOf('[Cited source 11]')).toBeLessThan(rendered.indexOf('[Citation only]'))
+      expect(rendered).toContain('Showing the first 10 sources.')
     } finally { await ctx.fiber.dispose() }
   })
 

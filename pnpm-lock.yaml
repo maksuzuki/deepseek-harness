@@ -18187,6 +18187,9 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: workspace:*
         version: link:../../core/session
+      '@deepseek-ai/dsh-tool-web':
+        specifier: workspace:*
+        version: link:../tool-web
       '@deepseek-ai/dsh-web':
         specifier: workspace:*
         version: link:../web
