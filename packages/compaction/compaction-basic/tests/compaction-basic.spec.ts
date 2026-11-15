@@ -16,7 +16,7 @@ import {
   resolveTargetPolicy,
 } from '@deepseek-ai/dsh-compaction-basic/src/config.ts'
 import type { CompactionResult } from '@deepseek-ai/dsh-compaction'
-import LlmRuntime, { createUserMessage, type ToolCallId, CONTEXT_WINDOW_EXCEEDED_CODE, createSystemMessage, createToolResultMessage, LlmAdapter , createMessage } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, type ToolCallId, CONTEXT_WINDOW_EXCEEDED_CODE, createSystemMessage, createToolResultMessage, LlmAdapter, LlmError, createMessage } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock,
@@ -2092,6 +2092,21 @@ describe('automatic listener and loader composition', () => {
     expect(session.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(false)
   })
 
+  it.each([
+    Object.assign(new Error('summarization truncated at the token cap'), { code: 'MAX_TOKENS' }),
+    new LlmError('summary request exhausted its context', CONTEXT_WINDOW_EXCEEDED_CODE),
+  ])('stops proactive admission after an incomplete summary (%s)', async (failure) => {
+    const ctx = createContext()
+    const compact = new TestCompactionEngine(ctx, {
+      headroomTokens: 0, maxTokens: 8192, thresholdRatio: 0.5, retainTokens: 180,
+    })
+    compact.error = failure
+    await expect(preStep(ctx, agent(conversation(4), MODEL))).rejects.toMatchObject({
+      code: CONTEXT_WINDOW_EXCEEDED_CODE,
+      cause: failure,
+    })
+  })
+
   it('warns once per routed target when proactive pressure has no context metadata', async () => {
     const ctx = createContext()
     const warnings: string[] = []
@@ -2313,6 +2328,37 @@ describe('automatic listener and loader composition', () => {
 
     expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(false)
     expect(session.surface.replaceGeneration).toBe(0)
+  })
+
+  it('does not retry when a replacement does not reduce the measured request budget', async () => {
+    const ctx = createContext()
+    const compact = new TestCompactionEngine(ctx)
+    const session = conversation(2)
+    const replaced = session.surface.nodes[0]!
+    vi.spyOn(compact, 'compactIfNeeded').mockImplementation(() => {
+      session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: `${'fixture '.repeat(40).trim()} user 1` }],
+        source: { kind: 'user' },
+      }), {
+        surfaceOp: { op: 'replace', startSeq: replaced, endSeq: replaced },
+        sourceEventSeqs: [replaced],
+      })
+      return Promise.resolve(null)
+    })
+
+    expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(false)
+    expect(session.surface.replaceGeneration).toBe(1)
+  })
+
+  it('preserves the original overflow when request budget measurement fails', async () => {
+    const ctx = createContext()
+    const compact = new TestCompactionEngine(ctx)
+    const original = overflow('original provider overflow')
+    const run = vi.spyOn(compact, 'compactIfNeeded')
+    vi.spyOn(ctx.tokenMeter, 'measure').mockImplementation(() => { throw new Error('measurement unavailable') })
+    expect(await recover(ctx, agent(conversation(2), MODEL), original)).toBe(false)
+    expect(original.message).toBe('original provider overflow')
+    expect(run).not.toHaveBeenCalled()
   })
 
   it('delegates downstream exactly once when no replacement is available', async () => {
