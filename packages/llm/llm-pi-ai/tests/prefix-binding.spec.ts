@@ -6,6 +6,9 @@ import type { Message, ToolCallId } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { resolveProfiles } from '../src/config.ts'
+import { bindThinkingToPrefix } from '../src/prefix-binding.ts'
+import type { AssistantMessage as PiAssistantMessage, Context as PiContext } from '@earendil-works/pi-ai'
+import { estimateContextTokens } from '@earendil-works/pi-ai/utils/estimate'
 import { memoryAuth } from './auth-double.ts'
 import { assemble } from './assemble.ts'
 import { anthropicFrame, closeMockServers, mockServer } from './mock-server.ts'
@@ -80,6 +83,56 @@ function wire(request: unknown): string {
 }
 
 describe('Anthropic thinking prefix binding', () => {
+  const route = { provider: 'anthropic', model: 'model' }
+  it('keeps current usage and invalidates stale usage independently of thinking omission', () => {
+    const assistant: PiAssistantMessage = {
+      role: 'assistant', api: 'anthropic-messages', provider: 'anthropic', model: 'model',
+      content: [{ type: 'text', text: 'answer' }, { type: 'thinking', thinking: 'private', thinkingSignature: 'signed' }],
+      usage: { input: 10_000, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 10_001,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      stopReason: 'stop', timestamp: 0,
+    }
+    const context: PiContext = { systemPrompt: 'changed prompt', messages: [assistant] }
+    const prefix = bindThinkingToPrefix({ ...context, messages: [] }, 'anthropic-messages', new Map(), false, () => {}, new Map(), route)
+    if (prefix.digest === undefined) throw new Error('Anthropic request digest missing')
+    const current = bindThinkingToPrefix(context, 'anthropic-messages', new Map([[assistant, prefix.digest]]), false, () => {}, new Map([[assistant, prefix.usageDigest]]), route)
+    expect(estimateContextTokens(current.context.messages).usageTokens).toBe(10_001)
+    expect(current.context.messages[0]).toBe(assistant)
+
+    const omitted = vi.fn()
+    const stale = bindThinkingToPrefix(context, 'anthropic-messages', new Map([[assistant, 'old-prefix']]), false, omitted, new Map([[assistant, prefix.usageDigest]]), route)
+    expect(stale.context.messages[0]).toMatchObject({ role: 'assistant', usage: { totalTokens: 0 } })
+    expect(estimateContextTokens(stale.context.messages).usageTokens).toBe(0)
+    expect((stale.context.messages[0] as PiAssistantMessage).content).toEqual([{ type: 'text', text: 'answer' }])
+    expect(omitted).toHaveBeenCalledWith(1)
+
+    const textOnly = { ...assistant, content: [{ type: 'text' as const, text: 'answer' }] }
+    const noOmission = vi.fn()
+    const staleText = bindThinkingToPrefix({ ...context, messages: [textOnly] }, 'anthropic-messages', new Map(), false, noOmission, new Map(), route)
+    expect(estimateContextTokens(staleText.context.messages).usageTokens).toBe(0)
+    expect(noOmission).not.toHaveBeenCalled()
+  })
+
+  it('invalidates OpenAI usage when prompt, tools, or model change without a checkpoint', () => {
+    const openaiRoute = { provider: 'openai', model: 'model' }
+    const message: PiAssistantMessage = {
+      role: 'assistant', api: 'openai-completions', provider: 'openai', model: 'model',
+      content: [{ type: 'text', text: 'answer' }],
+      usage: { input: 10_000, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 10_001,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      stopReason: 'stop', timestamp: 0,
+    }
+    const before: PiContext = { systemPrompt: 'short', tools: [tool], messages: [] }
+    const digest = bindThinkingToPrefix(before, 'openai-completions', new Map(), false, () => {}, new Map(), openaiRoute).usageDigest
+    const recorded = new Map([[message, digest]])
+    const bound = (context: PiContext, route = openaiRoute) => bindThinkingToPrefix(
+      context, 'openai-completions', new Map(), false, () => {}, recorded, route,
+    ).context
+    expect(estimateContextTokens(bound({ ...before, messages: [message] }).messages).usageTokens).toBe(10_001)
+    expect(estimateContextTokens(bound({ ...before, systemPrompt: 'changed', messages: [message] }).messages).usageTokens).toBe(0)
+    expect(estimateContextTokens(bound({ ...before, tools: [], messages: [message] }).messages).usageTokens).toBe(0)
+    expect(estimateContextTokens(bound({ ...before, messages: [message] }, { provider: 'openai', model: 'other' }).messages).usageTokens).toBe(0)
+  })
   it('keeps thinking while its prefix is unchanged and omits it after the prefix is rewritten', async () => {
     const { server, run } = await setup('anthropic-messages', [
       { events: frames('first', true) },

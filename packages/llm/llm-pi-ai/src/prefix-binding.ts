@@ -8,7 +8,8 @@
  * request. Each Anthropic Messages response records a digest of the context it
  * was generated from; a later request replays its signed thinking only while
  * the reconstructed prefix still has the same digest. Replay state without a
- * digest predates this check and is treated as stale.
+ * digest predates this check and is treated as stale. Usage from a response
+ * whose prefix changed is also invalid for the rebuilt request budget.
  *
  * The digest covers the pi-ai context objects this package builds, including
  * fields Anthropic never receives. Any change to their construction
@@ -20,16 +21,20 @@
  */
 
 import { createHash } from 'node:crypto'
+import { calculateContextTokens } from '@earendil-works/pi-ai/utils/estimate'
 import type { Api, AssistantMessage, Context as PiContext } from '@earendil-works/pi-ai'
 
 /** Recorded request-prefix digests of reconstructed assistant messages, owned by one context conversion. */
 export type PrefixDigests = Map<AssistantMessage, string>
+/** Recorded request-prefix digests that establish when provider usage still prices the current prefix. */
+export type UsageDigests = Map<AssistantMessage, string>
 
 /** Wire protocol whose thinking signatures bind to the request prefix. */
 const PREFIX_BOUND_API = 'anthropic-messages'
 
 /** Seed of every digest chain; changing the digest input or its serialization requires a new seed. */
 const DIGEST_SEED = 'dsh-llm-pi-ai/prefix-binding/v1'
+const USAGE_DIGEST_SEED = 'dsh-llm-pi-ai/usage-prefix/v1'
 
 function chain(previous: string, value: unknown): string {
   return createHash('sha256').update(previous).update('\0').update(JSON.stringify(value)).digest('hex')
@@ -52,9 +57,16 @@ function signed(block: AssistantMessage['content'][number]): boolean {
   return block.type === 'thinking' && (block.redacted === true || (block.thinkingSignature ?? '').length > 0)
 }
 
-/** Copy of an assistant message without its signed thinking blocks. */
-function withoutSignedThinking(message: AssistantMessage): AssistantMessage {
-  return { ...message, content: message.content.filter(block => !signed(block)) }
+/** Remove stale prefix-dependent metadata while retaining durable assistant content. */
+function withoutStalePrefixMetadata(message: AssistantMessage, omitThinking: boolean): AssistantMessage {
+  return {
+    ...message,
+    ...omitThinking ? { content: message.content.filter(block => !signed(block)) } : {},
+    usage: {
+      input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+  }
 }
 
 /** Context whose stale thinking is removed, with the digest of the complete request. */
@@ -63,12 +75,14 @@ export interface PrefixBoundContext {
   context: PiContext
   /** Digest of the sent context, recorded with the response; absent for other protocols. */
   digest?: string
+  /** Digest of the converted request prefix used to validate replayed token usage. */
+  usageDigest: string
 }
 
 /**
- * Remove signed thinking from replayed Anthropic Messages assistant messages
- * whose request prefix changed since they were generated, or whose replay
- * state records no prefix digest. Manual thinking requires the final
+ * Remove prefix-dependent usage and signed thinking from replayed Anthropic
+ * Messages assistant messages whose request prefix changed since they were
+ * generated, or whose replay state records no prefix digest. Manual thinking requires the final
  * assistant turn of a tool round to start with a thinking block, so with
  * `manualThinking` the assistant message whose tool round the request
  * continues keeps its thinking.
@@ -77,6 +91,8 @@ export interface PrefixBoundContext {
  * @param prefixDigests - recorded digests the context conversion collected.
  * @param manualThinking - whether the request enables budget-based rather than adaptive thinking.
  * @param onOmitted - called once with the number of messages whose thinking was removed, when there are any.
+ * @param usageDigests - recorded prefix digests of replayed provider usage.
+ * @param route - actual provider and model whose tokenization produced the usage.
  * @returns the context to send and, for Anthropic Messages, its digest.
  */
 export function bindThinkingToPrefix(
@@ -85,26 +101,33 @@ export function bindThinkingToPrefix(
   prefixDigests: PrefixDigests,
   manualThinking: boolean,
   onOmitted: (count: number) => void,
+  usageDigests: UsageDigests,
+  route: { provider: string; model: string },
 ): PrefixBoundContext {
-  if (api !== PREFIX_BOUND_API) return { context }
-  const kept = manualThinking ? openToolRoundAssistant(context.messages) : -1
+  const kept = api === PREFIX_BOUND_API && manualThinking ? openToolRoundAssistant(context.messages) : -1
   let digest = chain(DIGEST_SEED, { systemPrompt: context.systemPrompt ?? null, tools: context.tools ?? null })
+  let usageDigest = chain(USAGE_DIGEST_SEED, {
+    route, systemPrompt: context.systemPrompt ?? null, tools: context.tools ?? null,
+  })
   let messages: PiContext['messages'] | undefined
   let omitted = 0
   for (const [index, original] of context.messages.entries()) {
     let message = original
-    if (
-      message.role === 'assistant' && message.api === PREFIX_BOUND_API && index !== kept
-      && prefixDigests.get(message) !== digest && message.content.some(signed)
-    ) {
-      message = withoutSignedThinking(message)
-      messages ??= context.messages.slice()
-      messages[index] = message
-      omitted++
+    if (message.role === 'assistant') {
+      const omitThinking = api === PREFIX_BOUND_API && message.api === PREFIX_BOUND_API
+        && index !== kept && prefixDigests.get(message) !== digest && message.content.some(signed)
+      const staleUsage = usageDigests.get(message) !== usageDigest && calculateContextTokens(message.usage) > 0
+      if (omitThinking || staleUsage) {
+        message = withoutStalePrefixMetadata(message, omitThinking)
+        messages ??= context.messages.slice()
+        messages[index] = message
+        if (omitThinking) omitted++
+      }
     }
     digest = chain(digest, message)
+    usageDigest = chain(usageDigest, message)
   }
-  if (messages === undefined) return { context, digest }
-  onOmitted(omitted)
-  return { context: { ...context, messages }, digest }
+  if (messages === undefined) return { context, usageDigest, ...api === PREFIX_BOUND_API ? { digest } : {} }
+  if (omitted > 0) onOmitted(omitted)
+  return { context: { ...context, messages }, usageDigest, ...api === PREFIX_BOUND_API ? { digest } : {} }
 }

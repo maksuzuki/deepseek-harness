@@ -167,6 +167,8 @@ providers:
 
 ### 失败与恢复
 
+发送前，适配器使用 pi-ai 的最终规范化 transcript、4,096 token 安全余量，以及请求的输出上限或模型默认值检查容量。最终上限至多一个 token 时，返回 `CONTEXT_WINDOW_EXCEEDED`。估算包含工具 schema 与转换后的图片；所有提供方都保留该余量。
+
 pi-ai 不提供且本构建未内置的路由需要 `api`、`baseURL` 与非空 `models` 列表；无法服务的 profile 会在写入处被拒绝，并点名路由与模型。内置路由无需其中任何一项，仅声明凭据的 profile 即按原样可服务。失败携带稳定 code：无法使用的凭据以 `INVALID_CREDENTIAL` 失败并点名路由与引用，`apiKeyEnv` 引用解析为空的路由以 `MISSING_CREDENTIAL` 失败，未配置模型以 `UNKNOWN_MODEL` 失败，终止性提供方失败则区分 `QUOTA` 与暂时性 `RATE_LIMIT`。`GenerateOptions.stop` 以 `UNSUPPORTED_OPTION` 被拒绝，因为 pi-ai 的通用流式 UI 无法跨提供方保证它。
 
 Config 更新严格验证发生变化的 provider。初始加载将已存储的目录故障保留为可编辑的 provider 诊断；未更改的故障 provider 不阻止其他编辑。可用模型仍可选择，无法解析的模型在网络 I/O 前失败。修复或删除问题配置会清除其诊断。
@@ -212,9 +214,10 @@ Config 更新严格验证发生变化的 provider。初始加载将已存储的�
 | [`src/models.ts`](src/models.ts) | 基于 pi-ai 窄入口的 model collection、静态 provider 与 reasoning level |
 | [`src/provider.ts`](src/provider.ts) | 受支持协议表与提供方构建 |
 | [`src/context.ts`](src/context.ts) | Harness 到 pi-ai 的上下文转换、图片处理、回放恢复 |
+| [`src/context-budget.ts`](src/context-budget.ts) | 使用 pi-ai 归一化与输出预留量检查最终请求容量 |
 | [`src/stream.ts`](src/stream.ts) | 把 pi-ai 事件转换为 harness `StreamChunk` 值 |
 | [`src/replay.ts`](src/replay.ts) | 带版本的 `ReplayEnvelope` 存储与校验 |
-| [`src/prefix-binding.ts`](src/prefix-binding.ts) | 请求前缀变化后省略 Anthropic thinking |
+| [`src/prefix-binding.ts`](src/prefix-binding.ts) | 回放 usage 与 Anthropic 签名 thinking 的前缀检查 |
 | [`src/discovery.ts`](src/discovery.ts) | 面向配置界面的端点询问 |
 
 ### 注册与目录
@@ -243,6 +246,8 @@ git add packages/llm/llm-pi-ai/src/provider-data.generated.ts
 ### 回放与词汇
 
 成功 assistant 响应会存储带版本的、无损 JSON 回放状态，与产生它们的提供方和模型放在一起——响应级事实加每个流式块一条逐块条目。请求时，`LlmRuntime` 仅当同一适配器实例拥有两条路由时才传递回放状态；适配器校验它并恢复原生响应 id、提供方签名与可选的 `providerThinkingLevel` effort 元数据，缺失的 effort 元数据仍保持缺失。回放会对照 assistant 来源校验请求模型身份，并用它保留同模型签名；提供方报告的响应模型仅作为诊断元数据。回放状态缺失或无法使用时会降级为提供方无关内容，并保留 assistant 来源中必需的提供方和模型。pi-ai 工具调用参数是解析后的对象，因此适配器解析输入并重新字符串化输出，以符合 harness 原始 JSON 约定；pi-ai 流内错误事件映射为终止 `finish` 分片。 协议转换仅作用于请求副本。从 A 切换到 B 再切回 A 时，存储的内容保持完整，包括空文本块、工具 id、原始块顺序和原生回放元数据；发给不同提供方、API 或模型的请求会省略不受支持的签名和推理块。缺少原生元数据的降级回放也会省略推理。切回原模型时，有效的原生回放会保留已存储的推理。
+
+完成的响应还会记录经过校验的提供方 token 计数，以及作为 `contextRevision` 的最新压缩检查点。后续请求只有在最新检查点匹配时才重用这些计数；检查点之前的计数归零。所有提供方在重用计数前，还会比较 `usagePrefixDigest` 与重建后的转换上下文前缀和实际模型。Anthropic 另用 `prefixDigest` 决定能否回放已签名 thinking。缺少 `usagePrefixDigest` 的回放状态仍可读取，但不贡献先前 usage；计数或修订元数据损坏时，该 assistant 消息降级为提供方无关内容。
 
 Anthropic 可以将每个已签名 thinking 块绑定到生成它时的请求前缀：系统提示词、工具和此前的消息。执行此检查的账户和请求会拒绝回放过期块的请求。因此，Anthropic Messages 响应会将其请求上下文的 SHA-256 摘要记录为 `prefixDigest`。后续 Anthropic Messages 请求会在每个回放响应之前重新计算重建前缀的摘要；摘要不同时，例如在压缩、工具结果裁剪、图片卸载或系统提示词或工具变化之后，省略该响应的已签名 thinking 与 redacted thinking。不含 `prefixDigest` 的回放状态（在此检查出现之前写入）按同样方式处理，从而修复已经失败的对话。文本、工具调用和未签名 thinking 保留；只含已签名 thinking 的响应不再发送。已省略的 thinking 在后续请求中保持省略。手动思考要求工具轮次的最后一个 assistant 轮次以 thinking 块开头，因此当请求启用 thinking 且模型的 compat 未设置 `forceAdaptiveThinking` 时，请求以工具结果延续的工具轮次对应的 assistant 消息会保留其 thinking。
 

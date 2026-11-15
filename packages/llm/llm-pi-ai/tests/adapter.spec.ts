@@ -523,6 +523,24 @@ describe('PiAiAdapter provider routing', () => {
     })
   })
 
+  it('rejects a 32K request before provider dispatch when the reserve leaves one token', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, { providers: {
+      gateway: { apiKeyEnv: 'PI_TEST_KEY', api: 'openai-completions', baseURL: server.url,
+        models: [{ id: 'budget-32k', contextWindow: 32_768, maxTokens: 2048 }] },
+    } })
+    const oversized = await assemble(ctx, { provider: 'gateway', model: 'budget-32k',
+      messages: [createUserMessage({ content: [{ type: 'text', text: 'u'.repeat(Math.floor(28_671 * 3.5)) }], source: { kind: 'user' } })],
+    })
+    expect(oversized.finish).toMatchObject({ kind: 'error', failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE } })
+    expect(server.paths).toEqual([])
+    const accepted = await assemble(ctx, { provider: 'gateway', model: 'budget-32k', messages: [] })
+    expect(accepted.finish).toEqual({ kind: 'stop' })
+    expect(server.paths).toEqual(['/chat/completions'])
+  })
+
   it('stops the SDK request when the adapter idle watchdog expires', async () => {
     const server = await mockServer([{ holdOpen: true }])
     const ctx = await harness(server.url, { streamIdleTimeoutMs: 20 })

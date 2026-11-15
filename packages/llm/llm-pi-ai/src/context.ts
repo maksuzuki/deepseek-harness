@@ -16,7 +16,7 @@ import type {
 } from '@deepseek-ai/dsh-attachment'
 import type { Context as PiContext, ImageContent, Message as PiMessage, SystemMessage, TextContent, Tool as PiTool } from '@earendil-works/pi-ai'
 import { toPiAssistant } from './replay.ts'
-import type { PrefixDigests } from './prefix-binding.ts'
+import type { PrefixDigests, UsageDigests } from './prefix-binding.ts'
 import { requestImageDimensions } from '@deepseek-ai/dsh-attachment'
 import { DEFAULT_REQUEST_IMAGE_MAX_BYTES, DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET } from './config.ts'
 
@@ -26,6 +26,27 @@ function flattenText(message: RequestMessage): string {
     .filter(block => block.type === 'text')
     .map(block => block.text)
     .join('')
+}
+
+/** Read an extensible source discriminant without importing its producer. */
+function sourceKind(source: Message['source']): string {
+  return source.kind
+}
+
+/** Latest checkpoint represented by the projected request history.
+ * @param messages - model-visible history in order.
+ * @returns checkpoint id, or undefined before any compaction.
+ */
+export function contextRevisionOf(messages: readonly RequestMessage[]): string | undefined {
+  let revision: string | undefined
+  for (const message of messages) {
+    const source = message.source
+    if (source === undefined || sourceKind(source) !== 'compact-checkpoint') continue
+    if ('compactionId' in source && typeof source.compactionId === 'string') {
+      revision = source.compactionId
+    }
+  }
+  return revision
 }
 
 
@@ -205,10 +226,12 @@ function appendAssistant(
   message: Extract<Message, { role: 'assistant' }>,
   messages: PiMessage[],
   toolNames: Map<ToolCallId, string>,
+  contextRevision: string | undefined,
   onReplayDegrade?: (reason: string) => void,
   prefixDigests?: PrefixDigests,
+  usageDigests?: UsageDigests,
 ): void {
-  const assistant = toPiAssistant(message, onReplayDegrade, prefixDigests)
+  const assistant = toPiAssistant(message, onReplayDegrade, prefixDigests, contextRevision, usageDigests)
   for (const block of assistant.content) {
     if (block.type === 'toolCall') toolNames.set(brandString<ToolCallId>(block.id), block.name)
   }
@@ -222,8 +245,10 @@ function appendSharedHistory(
   messages: PiMessage[],
   toolNames: Map<ToolCallId, string>,
   supportsMidConvoSystemMessages: boolean,
+  contextRevision: string | undefined,
   onReplayDegrade?: (reason: string) => void,
   prefixDigests?: PrefixDigests,
+  usageDigests?: UsageDigests,
 ): boolean {
   if (message.role === 'developer') {
     appendDeveloper(message, options, messages)
@@ -242,7 +267,7 @@ function appendSharedHistory(
     return true
   }
   if (message.role === 'assistant') {
-    appendAssistant(message, messages, toolNames, onReplayDegrade, prefixDigests)
+    appendAssistant(message, messages, toolNames, contextRevision, onReplayDegrade, prefixDigests, usageDigests)
     return true
   }
   return false
@@ -253,16 +278,20 @@ function textOnlyContext(
   supportsMidConvoSystemMessages: boolean,
   onReplayDegrade?: (reason: string) => void,
   prefixDigests?: PrefixDigests,
+  usageDigests?: UsageDigests,
 ): PiContext {
   assertSupportedHistory(options.messages)
   const split = splitSystemPrompt(options)
+  const contextRevision = contextRevisionOf(options.messages)
   const toolNames = new Map<ToolCallId, string>()
   const messages: PiMessage[] = []
   for (const message of split.messages) {
     if (contentHasImage(message.content)) {
       throw new LlmError('pi-ai image conversion requires the durable attachment service', 'UNSUPPORTED_CONTENT')
     }
-    if (appendSharedHistory(message, options, messages, toolNames, supportsMidConvoSystemMessages, onReplayDegrade, prefixDigests)) continue
+    if (appendSharedHistory(
+      message, options, messages, toolNames, supportsMidConvoSystemMessages, contextRevision, onReplayDegrade, prefixDigests, usageDigests,
+    )) continue
     if (message.role === 'tool') {
       messages.push(toolResultOf(message, toolNames, flattenText(message)))
       continue
@@ -314,6 +343,7 @@ export function requestImageTarget(ref: ImageAttachmentRef, budget: PiImageReque
  * @param onReplayDegrade - forwarded to {@link toPiAssistant} for each assistant message.
  * @param supportsMidConvoSystemMessages - native model capability; otherwise later system text becomes a user-role system-reminder.
  * @param prefixDigests - receives the recorded request-prefix digest of each replayed assistant message that has one.
+ * @param usageDigests - receives validated usage-prefix digests from replay state.
  * @returns the pi-ai context; `tools` is omitted when the request declares none.
  * @throws {LlmError} `UNSUPPORTED_CONTENT` for images in any history role, including a leading system message.
  */
@@ -323,6 +353,7 @@ export function toPiContext(
   onReplayDegrade?: (reason: string) => void,
   supportsMidConvoSystemMessages?: boolean,
   prefixDigests?: PrefixDigests,
+  usageDigests?: UsageDigests,
 ): PiContext
 /**
  * Convert harness history to a pi-ai Context while resolving durable images.
@@ -337,6 +368,7 @@ export function toPiContext(
  * @param onReplayDegrade - forwarded to {@link toPiAssistant} for each assistant message.
  * @param supportsMidConvoSystemMessages - native model capability; otherwise later system text becomes a user-role system-reminder.
  * @param prefixDigests - receives the recorded request-prefix digest of each replayed assistant message that has one.
+ * @param usageDigests - receives validated usage-prefix digests from replay state.
  * @returns the asynchronously resolved pi-ai context.
  */
 export function toPiContext(
@@ -345,6 +377,7 @@ export function toPiContext(
   onReplayDegrade?: (reason: string) => void,
   supportsMidConvoSystemMessages?: boolean,
   prefixDigests?: PrefixDigests,
+  usageDigests?: UsageDigests,
 ): Promise<PiContext>
 export function toPiContext(
   options: GenerateOptions,
@@ -352,10 +385,11 @@ export function toPiContext(
   onReplayDegrade?: (reason: string) => void,
   supportsMidConvoSystemMessages = false,
   prefixDigests?: PrefixDigests,
+  usageDigests?: UsageDigests,
 ): PiContext | Promise<PiContext> {
   return images === undefined
-    ? textOnlyContext(options, supportsMidConvoSystemMessages, onReplayDegrade, prefixDigests)
-    : toPiContextWithImages(options, images, supportsMidConvoSystemMessages, onReplayDegrade, prefixDigests)
+    ? textOnlyContext(options, supportsMidConvoSystemMessages, onReplayDegrade, prefixDigests, usageDigests)
+    : toPiContextWithImages(options, images, supportsMidConvoSystemMessages, onReplayDegrade, prefixDigests, usageDigests)
 }
 
 async function toPiContextWithImages(
@@ -364,6 +398,7 @@ async function toPiContextWithImages(
   supportsMidConvoSystemMessages: boolean,
   onReplayDegrade?: (reason: string) => void,
   prefixDigests?: PrefixDigests,
+  usageDigests?: UsageDigests,
 ): Promise<PiContext> {
   const { attachments, resolveImageAccess, maxRequestImageBytes, maxRequestImages, imageOffloadCountQuantum } = images
   const requestImagePolicy = images.requestImagePolicy ?? {
@@ -372,6 +407,7 @@ async function toPiContextWithImages(
   }
   assertSupportedHistory(options.messages)
   const split = splitSystemPrompt(options)
+  const contextRevision = contextRevisionOf(options.messages)
   const requestImages = await prepareRequestImages(split.messages, attachments, requestImagePolicy, options.signal)
   const offloadImages = requiredImageOffload(
     split.messages,
@@ -398,7 +434,9 @@ async function toPiContextWithImages(
   const messages: PiMessage[] = []
 
   for (const message of exactMessages) {
-    if (appendSharedHistory(message, options, messages, toolNames, supportsMidConvoSystemMessages, onReplayDegrade, prefixDigests)) continue
+    if (appendSharedHistory(
+      message, options, messages, toolNames, supportsMidConvoSystemMessages, contextRevision, onReplayDegrade, prefixDigests, usageDigests,
+    )) continue
     if (message.role === 'tool') {
       messages.push(toolResultOf(message, toolNames, userContent(message.content, requestImages, resolveImageAccess)))
       continue

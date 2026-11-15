@@ -8,11 +8,15 @@ import type {
 } from '@deepseek-ai/dsh-attachment'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { createDeveloperMessage, type ToolCallId, createAssistantMessage, createMessage, createToolResultMessage, createUserMessage, offloadedImageText } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, GenerateOptions, Message, RequestUserInput } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, GenerateOptions, Message, MessageSourceMap, RequestUserInput } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
-import { toPiContext } from '../src/context.ts'
+import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai'
+import { estimateContextTokens } from '@earendil-works/pi-ai/utils/estimate'
+import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
+import { contextRevisionOf, toPiContext } from '../src/context.ts'
 import type { PiImageRequestContext } from '../src/context.ts'
-import { toPiAssistant } from '../src/replay.ts'
+import { toPiAssistant, toPiReplayState } from '../src/replay.ts'
+import { bindThinkingToPrefix } from '../src/prefix-binding.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -57,6 +61,30 @@ function projectionStore(
 
 const attachments = projectionStore()
 
+function checkpoint(id: string): Message {
+  return createUserMessage({
+    content: [{ type: 'text', text: 'compacted history' }],
+    source: {
+      kind: 'compact-checkpoint',
+      compactionId: brandString<MessageSourceMap['compact-checkpoint']['compactionId']>(id),
+    },
+  })
+}
+
+function usageAssistant(input: number, revision?: string, usageDigest?: string): Message {
+  const native: PiAssistantMessage = {
+    role: 'assistant', content: [{ type: 'text', text: 'retained response' }],
+    api: 'openai-completions', provider: 'openai', model: 'gpt-4.1',
+    usage: { input, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: input,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    stopReason: 'stop', timestamp: 1,
+  }
+  return createAssistantMessage({
+    content: [{ type: 'text', text: 'retained response' }],
+    source: { provider: 'openai', model: 'gpt-4.1', replayState: toPiReplayState(native, native.model, undefined, revision, usageDigest) },
+  })
+}
+
 function imageContext(
   store: AttachmentStore,
   overrides: Partial<Omit<PiImageRequestContext, 'attachments'>> = {},
@@ -83,6 +111,30 @@ function history(role: 'system' | 'assistant', content: ContentBlock[]): Message
 }
 
 describe('pi-ai request context conversion', () => {
+  it('uses the latest valid checkpoint revision and invalidates earlier usage', () => {
+    const earlier = checkpoint('checkpoint-1')
+    const latest = checkpoint('checkpoint-2')
+    expect(contextRevisionOf([earlier, latest])).toBe('checkpoint-2')
+    const context = normalizeContext(toPiContext(request([
+      latest, usageAssistant(26_509), user([{ type: 'text', text: 'r'.repeat(15_736) }]),
+    ])))
+    expect(estimateContextTokens(context)).toMatchObject({ usageTokens: 0, lastUsageIndex: null })
+  })
+
+  it('keeps same-revision usage with a matching prefix and safely drops legacy usage without a digest', () => {
+    const route = { provider: 'openai', model: 'gpt-4.1' }
+    const head = checkpoint('checkpoint-1')
+    const prefix = bindThinkingToPrefix(toPiContext(request([head])), 'openai-completions', new Map(), false, () => {}, new Map(), route)
+    const usageDigests = new Map()
+    const current = toPiContext(request([head, usageAssistant(8_000, 'checkpoint-1', prefix.usageDigest)]),
+      undefined, undefined, false, new Map(), usageDigests)
+    const bound = bindThinkingToPrefix(current, 'openai-completions', new Map(), false, () => {}, usageDigests, route)
+    expect(estimateContextTokens(normalizeContext(bound.context))).toMatchObject({ usageTokens: 8_000, lastUsageIndex: 1 })
+    const oldDigests = new Map()
+    const legacy = toPiContext(request([usageAssistant(8_000)]), undefined, undefined, false, new Map(), oldDigests)
+    const oldBound = bindThinkingToPrefix(legacy, 'openai-completions', new Map(), false, () => {}, oldDigests, route)
+    expect(estimateContextTokens(normalizeContext(oldBound.context))).toMatchObject({ usageTokens: 0, lastUsageIndex: null })
+  })
   it.each(['user', 'system', 'assistant', 'tool'] as const)('rejects tool-change blocks in %s history', (role) => {
     for (const type of ['tool-addition', 'tool-removal'] as const) {
       const message = { id: 'invalid', role, source: { kind: 'test' }, content: [{ type, toolName: 'search' }] } as unknown as Message

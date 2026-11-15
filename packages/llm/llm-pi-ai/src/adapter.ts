@@ -67,12 +67,14 @@ import { catalogModels, catalogProvider } from './catalog.ts'
 import { catalogAlternateProfile } from './config.ts'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { requestImageTarget, toPiContext } from './context.ts'
+import { contextRevisionOf } from './context.ts'
+import { assertUsefulContextCapacity } from './context-budget.ts'
 import { conversationUpdates, createModels, getSupportedThinkingLevels } from './models.ts'
 import { selectPeakWindow } from './peak.ts'
 import { buildProvider } from './provider.ts'
 import { toStreamChunks } from './stream.ts'
 import { bindThinkingToPrefix } from './prefix-binding.ts'
-import type { PrefixDigests } from './prefix-binding.ts'
+import type { PrefixDigests, UsageDigests } from './prefix-binding.ts'
 import type { PiAiRequestHeaderContext } from './types.ts'
 
 /**
@@ -652,8 +654,9 @@ export class PiAiAdapter extends LlmAdapter {
         this.config.onReplayDegrade?.({ provider: options.provider, model: options.model, reason })
       }
       const prefixDigests: PrefixDigests = new Map()
+      const usageDigests: UsageDigests = new Map()
       const converted = attachments === undefined
-        ? toPiContext(request, undefined, onReplayDegrade, updates.systemPromptUpdate === 'in-history', prefixDigests)
+        ? toPiContext(request, undefined, onReplayDegrade, updates.systemPromptUpdate === 'in-history', prefixDigests, usageDigests)
         : await toPiContext({ ...request, signal: watchdog.signal }, {
           attachments,
           resolveImageAccess: ref => this.config.resolveImageAccess?.(attachments, ref),
@@ -664,12 +667,13 @@ export class PiAiAdapter extends LlmAdapter {
             maxPixels: profile.requestImagePixelBudget,
             maxBytes: profile.requestImageMaxBytes,
           },
-        }, onReplayDegrade, updates.systemPromptUpdate === 'in-history', prefixDigests)
+        }, onReplayDegrade, updates.systemPromptUpdate === 'in-history', prefixDigests, usageDigests)
       const manualThinking = model.reasoning && reasoning !== undefined && reasoning !== 'off'
         && (model as Model<'anthropic-messages'>).compat?.forceAdaptiveThinking !== true
-      const { context, digest } = bindThinkingToPrefix(converted, model.api, prefixDigests, manualThinking, (count) => {
+      const { context, digest, usageDigest } = bindThinkingToPrefix(converted, model.api, prefixDigests, manualThinking, (count) => {
         this.config.onThinkingOmitted?.({ provider: options.provider, model: options.model, count })
-      })
+      }, usageDigests, { provider: model.provider, model: model.id })
+      assertUsefulContextCapacity(model, context, options.maxTokens ?? model.maxTokens)
       const events = snapshot.models.streamSimple(model, context, {
         ...profileOptions(profile, reasoning, apiKey),
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
@@ -678,7 +682,9 @@ export class PiAiAdapter extends LlmAdapter {
         signal: watchdog.signal,
         headers: requestHeaders(profile.headers, options, model.baseUrl, this.config.prepareHeaders),
       })
-      const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id, digest)[Symbol.asyncIterator]()
+      const iterator = toStreamChunks(
+        events, model.contextWindow, options.signal, model.id, digest, contextRevisionOf(request.messages), usageDigest,
+      )[Symbol.asyncIterator]()
       let exhausted = false
       try {
         while (true) {
