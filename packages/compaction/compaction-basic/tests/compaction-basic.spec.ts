@@ -1404,6 +1404,7 @@ describe('default one-shot summarizer', () => {
 
     expect(adapter.lastOptions).not.toHaveProperty('system')
     expect(adapter.lastOptions?.tools).toEqual(tools)
+    expect(adapter.lastOptions?.toolChoice).toBe('none')
     expect(adapter.lastOptions?.messages.slice(0, -1)).toEqual(prefix)
     const instruction = adapter.lastOptions?.messages.at(-1)
     expect(instruction).toMatchObject({ role: 'user' })
@@ -1460,6 +1461,7 @@ describe('default one-shot summarizer', () => {
       sessionId: session.id,
       toolHistory: session.toolHistory(),
       purpose: 'compaction',
+      toolChoice: 'none',
     })
     const instruction = adapter.lastOptions?.messages.at(-1)?.content[0]
     expect(instruction?.type === 'text' ? instruction.text : '').toContain('## Primary Request and Intent')
@@ -1735,10 +1737,18 @@ describe('default one-shot summarizer', () => {
     },
   )
 
-  it('rejects empty or reasoning-only successful output', async () => {
-    const { compact } = await summarizerHarness([{ type: 'reasoning', text: 'private' }])
-    await expect(compact.runSummarize(promptInput('history'), agent(conversation(1), MODEL)))
-      .rejects.toThrow(/no text summary content/)
+  it.each([
+    [[], 'text=0, reasoning=0, toolCalls=0, textCharacters=0'],
+    [[{ type: 'reasoning', text: 'private' }], 'text=0, reasoning=1, toolCalls=0, textCharacters=0'],
+    [[{ type: 'tool-call', id: brandString<ToolCallId>('unexpected'), name: 'x', arguments: '{"secret":"hidden"}' }], 'text=0, reasoning=0, toolCalls=1, textCharacters=0'],
+    [[{ type: 'text', text: '   ' }], 'text=1, reasoning=0, toolCalls=0, textCharacters=0'],
+  ] as const)('rejects non-summary output with safe diagnostics %#', async (blocks, counts) => {
+    const { adapter, compact } = await summarizerHarness(blocks)
+    adapter.usage = { inputTokens: 12, outputTokens: 3 }
+    const session = conversation(1)
+    await expect(compact.runSummarize(promptInput('history'), agent(session, MODEL)))
+      .rejects.toThrow(`no text summary content (finish=stop, ${counts}, inputTokens=12, outputTokens=3, maxTokens=65536)`)
+    expect(session.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(false)
   })
 
   it('rejects image summary output instead of silently dropping it', async () => {

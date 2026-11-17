@@ -195,6 +195,8 @@ The adapter is built on immutable snapshots and per-operation resolution. Each o
 
 Initial prompt text and active tools use pi-ai's `Context.systemPrompt` and `Context.tools`; later system and tool updates remain in `Context.messages`. pi-ai normalizes these fields and applies the selected protocol's serialization rules.
 
+`GenerateOptions.toolChoice` is forwarded to pi-ai when set. An omitted choice retains the provider's default tool behavior; `none` keeps tool declarations and history in the request while forbidding new tool calls on protocols that support this option.
+
 <a id="request-headers"></a>
 ### Request headers
 

@@ -153,6 +153,7 @@ export async function summarizeWithLlm(
     messages,
     toolHistory: agent.session.toolHistory(),
     ...input.tools === undefined ? {} : { tools: [...input.tools] },
+    toolChoice: 'none',
     maxTokens: config.maxTokens,
     sessionId: agent.session.id,
     purpose: 'compaction',
@@ -165,7 +166,17 @@ export async function summarizeWithLlm(
   const rawOutput = assembler.blocks()
   const summary = summaryText(rawOutput)
   if (!summary.some(block => block.text.trim().length > 0)) {
-    throw new Error('summarization produced no text summary content')
+    const text = rawOutput.filter(block => block.type === 'text')
+    const reasoningCount = rawOutput.filter(block => block.type === 'reasoning').length
+    const toolCallCount = rawOutput.filter(block => block.type === 'tool-call').length
+    const usage = assembler.usage
+    throw new Error(
+      'summarization produced no text summary content '
+      + `(finish=${assembler.finish.kind}, text=${text.length}, reasoning=${reasoningCount}, `
+      + `toolCalls=${toolCallCount}, textCharacters=${text.reduce((total, block) => total + block.text.trim().length, 0)}, `
+      + `inputTokens=${usage?.inputTokens ?? 'unknown'}, outputTokens=${usage?.outputTokens ?? 'unknown'}, `
+      + `maxTokens=${config.maxTokens})`,
+    )
   }
   return {
     summary,

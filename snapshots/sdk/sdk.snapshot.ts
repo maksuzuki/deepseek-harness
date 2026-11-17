@@ -1448,6 +1448,9 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
         const summaryMessages = summaryRequest.messages as JsonObject[]
         const continuationMessages = continuationRequest.messages as JsonObject[]
         expect(summaryRequest.tools).toEqual(initialRequest.tools)
+        expect(summaryRequest.toolChoice).toBe('none')
+        expect(initialRequest).not.toHaveProperty('toolChoice')
+        expect(continuationRequest).not.toHaveProperty('toolChoice')
         expect(continuationRequest.tools).toEqual(initialRequest.tools)
         expect(continuationRequest.provider).toBe(initialRequest.provider)
         expect(continuationRequest.model).toBe(initialRequest.model)

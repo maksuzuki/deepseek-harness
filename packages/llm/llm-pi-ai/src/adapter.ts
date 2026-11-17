@@ -686,6 +686,7 @@ export class PiAiAdapter extends LlmAdapter {
       assertUsefulContextCapacity(model, context, options.maxTokens ?? model.maxTokens)
       const events = snapshot.models.streamSimple(model, context, {
         ...profileOptions(profile, reasoning, apiKey),
+        ...options.toolChoice === undefined ? {} : { toolChoice: options.toolChoice },
         ...thinking === undefined ? {} : { samplingParams: { thinking } },
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },

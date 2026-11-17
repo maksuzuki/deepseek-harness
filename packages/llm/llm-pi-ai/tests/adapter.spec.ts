@@ -9,7 +9,7 @@ import type {
   SaveImageAttachment,
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import LlmRuntime, { createToolResultMessage, createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, type ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createAssistantMessage, createToolResultMessage, createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, type ReasoningEffortId, type ToolCallId, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -114,6 +114,36 @@ beforeEach(() => {
 })
 
 describe('PiAiAdapter provider routing', () => {
+  it('preserves tools and prior tool results while suppressing calls for a summary only', async () => {
+    const server = await mockServer([{ events: textEvents }, { events: textEvents }])
+    const ctx = await harness(server.url)
+    const callId = brandString<ToolCallId>('prior-call')
+    const tools = Array.from({ length: 33 }, (_, index) => ({
+      name: `tool_${index}`, description: 'test tool', parameters: { type: 'object', properties: {} },
+    }))
+    const messages = [
+      createAssistantMessage({
+        source: { provider: 'deepseek', model: 'deepseek-flash' },
+        content: [{ type: 'tool-call' as const, id: callId, name: 'tool_0', arguments: '{}' }],
+      }),
+      createToolResultMessage({ callId, content: [{ type: 'text', text: 'result' }], isError: false }),
+      createUserMessage({ content: [{ type: 'text', text: 'summarize' }], source: { kind: 'model', provider: 'deepseek', model: 'deepseek-flash' } }),
+    ]
+    await assemble(ctx, { model: 'deepseek-flash', messages, tools, toolChoice: 'none' })
+    await assemble(ctx, { model: 'deepseek-flash', messages, tools })
+
+    expect(server.requests[0]).toMatchObject({ tool_choice: 'none' })
+    expect(server.requests[0]).toHaveProperty('tools')
+    expect((server.requests[0] as { tools: unknown[] }).tools).toHaveLength(33)
+    expect(server.requests[0]).toMatchObject({ messages: [
+      { role: 'assistant', tool_calls: [{ id: callId }] },
+      { role: 'tool', tool_call_id: callId },
+      { role: 'user' },
+    ] })
+    expect(server.requests[1]).not.toHaveProperty('tool_choice')
+    expect((server.requests[1] as { tools: unknown[] }).tools).toHaveLength(33)
+  })
+
   it('resolves a catalog model dynamically and uses a private endpoint', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url)

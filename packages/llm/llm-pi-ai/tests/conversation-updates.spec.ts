@@ -237,10 +237,12 @@ describe('historical tool availability on the wire', () => {
     const update = addition()
     const { requests } = await send('moonshotai', 'kimi-k3', {
       messages: [user('first'), update], tools: [baseline, added],
+      toolChoice: 'none',
       toolHistory: { tools: [baseline], updates: [{ messageId: update.id, additions: [added] }] },
     })
     expect(requests).toHaveLength(1)
     expect(requests[0]).toMatchObject({
+      tool_choice: 'none',
       tools: [{ type: 'function', function: { name: 'read' } }],
       messages: [
         { role: 'user', content: 'first' },

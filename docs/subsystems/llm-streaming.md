@@ -719,6 +719,8 @@ interface GenerateOptions<Purpose extends string = LlmRequestPurpose> {
   system?: string
   /** Tool schemas (adapters map to the provider's `tools` field). */
   tools?: ToolSchema[]
+  /** Whether the model may call a declared tool; omission keeps the adapter's default. */
+  toolChoice?: 'auto' | 'none'
   /** Session-folded tool history used for route projection; omission sends complete declarations without tool updates. */
   toolHistory?: ToolHistory
   temperature?: number

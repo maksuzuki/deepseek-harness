@@ -15,6 +15,7 @@ export function apply(ctx, config) {
       reasoningEffort: options.reasoningEffort,
       messages: options.messages,
       tools: options.tools,
+      toolChoice: options.toolChoice,
     }) + '\n')
     yield* next()
   })

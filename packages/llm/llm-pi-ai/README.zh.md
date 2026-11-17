@@ -195,6 +195,8 @@ Config 更新严格验证发生变化的 provider。初始加载将已存储的�
 
 初始提示词文本和可用工具分别使用 pi-ai 的 `Context.systemPrompt` 与 `Context.tools`；后续系统消息和工具更新保留在 `Context.messages` 中。pi-ai 负责规范化这些字段，并应用所选协议的序列化规则。
 
+设置 `GenerateOptions.toolChoice` 时，适配器会将其传给 pi-ai。未指定时沿用提供方默认的工具行为；在支持该选项的协议中，`none` 保留请求中的工具声明和历史，但禁止新的工具调用。
+
 <a id="request-headers"></a>
 ### 请求头
 
