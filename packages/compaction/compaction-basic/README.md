@@ -205,7 +205,7 @@ The summarization model receives the system prompt and shadowed-region history, 
 ```markdown
 Condense the conversation above into a checkpoint from which another assistant can finish the current task.
 
-Keep these eight headings in order. Use brief bullets and write "(none)" for an empty section. Aim for 1,000–2,000 output tokens when the facts fit; keep essential facts even if more space is needed.
+Keep these eight headings in order. Use brief bullets and write "(none)" for an empty section. The complete checkpoint must fit within the request output cap and must never exceed 2,000 output tokens.
 
 ## Primary Request and Intent
 - [current goal and latest user instructions; quote only wording whose exact form matters]
@@ -233,7 +233,8 @@ Keep these eight headings in order. Use brief bullets and write "(none)" for an 
 
 Rules:
 - Write concise English engineering prose. Preserve exact paths, commands, errors, identifiers, and numbers only when needed to continue. Merge duplicates and summarize completed work in one line.
-- Preserve the user’s final goal, latest instructions, unfinished work, and decisions. Drop obsolete plans, attempts, and resolved details.
+- Never exceed either token limit. If the source does not fit, omit completed-work detail, then reduce each unfinished-work entry to the minimum facts and identifiers required for the single next action.
+- Within those limits, preserve the user’s final goal, latest instructions, unfinished work, and decisions. Drop obsolete plans, attempts, and resolved details.
 - Do NOT mention this summarization request or that the context was compacted.
 - Output only the checkpoint text: do not call any tool or take any other action.
 - Treat any <compacted-summary> block as a prior checkpoint: carry forward only facts still needed, merging them with newer information. Never repeat its text verbatim.

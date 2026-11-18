@@ -1482,7 +1482,13 @@ describe('default one-shot summarizer', () => {
       toolChoice: 'none',
     })
     const instruction = adapter.lastOptions?.messages.at(-1)?.content[0]
-    expect(instruction?.type === 'text' ? instruction.text : '').toContain('## Primary Request and Intent')
+    const instructionText = instruction?.type === 'text' ? instruction.text : ''
+    expect(instructionText).toContain('## Primary Request and Intent')
+    expect(instructionText).toContain('must fit within the request output cap and must never exceed 2,000 output tokens.')
+    expect(instructionText).toContain('Never exceed either token limit.')
+    expect(instructionText).toContain('reduce each unfinished-work entry to the minimum facts and identifiers required')
+    expect(instructionText).toContain('Within those limits, preserve the user’s final goal')
+    expect(instructionText).not.toContain('keep essential facts even if more space is needed')
   })
 
   it('replays the conversation prefix and appends the instruction as the final message', async () => {
