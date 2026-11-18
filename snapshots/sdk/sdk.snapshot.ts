@@ -1457,7 +1457,7 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
         expect(continuationMessages[0]).toEqual(initialMessages[0])
         expect(summaryMessages.slice(0, -1)).toEqual(initialMessages)
         expect(summaryMessages.at(-1)).toMatchObject({ role: 'user', content: [{
-          type: 'text', text: expect.stringContaining('You are now acting as a compaction engine'),
+          type: 'text', text: expect.stringContaining('Condense the conversation above into a checkpoint'),
         }] })
         const continuationBlocks = continuationMessages.flatMap(message => message.content as JsonObject[])
         expect(continuationBlocks).toEqual(expect.arrayContaining(summary.data.summary))

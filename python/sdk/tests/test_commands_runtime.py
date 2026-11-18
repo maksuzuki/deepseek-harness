@@ -460,7 +460,7 @@ def run_compaction_scenario(tmp_path: Path, *, capture_patch: Path | None = None
         initial_texts = _request_texts(first)
         summary_texts = _request_texts(compaction)
         assert summary_texts[:len(initial_texts)] == initial_texts
-        assert "You are now acting as a compaction engine" in summary_texts[-1]
+        assert "Condense the conversation above into a checkpoint" in summary_texts[-1]
         following_texts = _request_texts(following)
         following_text = "\n".join(following_texts)
         assert _CHECKPOINT in following_text and _CONTINUE_PROMPT in following_text

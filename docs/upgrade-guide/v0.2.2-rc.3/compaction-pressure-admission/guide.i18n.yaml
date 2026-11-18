@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.3/compaction-pressure-admission/guide.md
+/:
+  en: ab8c7022eeff0e08
+  zh: ca85b5a4389a7a9d
+/automatic-compaction-enforces-the-pressure-threshold:
+  en: 20a6dc90c90bbb10
+  zh: 640754dfc77b1423
+/automatic-compaction-enforces-the-pressure-threshold/change:
+  en: 8e034283c815c3bf
+  zh: 3ea2fa71c8eb045e
+/automatic-compaction-enforces-the-pressure-threshold/migration:
+  en: 53ac82fc313603f1
+  zh: c0ef2253449cad35

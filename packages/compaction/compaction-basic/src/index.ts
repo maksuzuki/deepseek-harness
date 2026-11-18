@@ -212,7 +212,7 @@ export class BasicCompactionEngine extends CompactionEngine {
         || (previous.config.provider === config.provider && previous.config.model === config.model)) return config
       try {
         const header = { ...previous, config }
-        const result = await this.compactPressure(agent, header, signal, true)
+        const result = await this.compactPressure(agent, header, signal)
         if (result !== null) logResult(result, 'model switch')
       } catch (error: unknown) {
         signal.throwIfAborted()
@@ -344,7 +344,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     if (header === undefined || routedTarget(agent.session) === undefined) return null
     switch (trigger) {
       case 'pressure':
-        return this.compactPressure(agent, header, signal, false)
+        return this.compactPressure(agent, header, signal)
       case 'context-overflow': {
         this.ctx.get('toolResultPruner')?.pruneSession(agent.session)
         const measurement = this.ctx.tokenMeter.measure(agent.session)
@@ -363,7 +363,6 @@ export class BasicCompactionEngine extends CompactionEngine {
     agent: Agent,
     header: EpochHeader,
     signal: AbortSignal,
-    requireBelowThreshold: boolean,
   ): Promise<CompactionResult | null> {
     const target = header.config
     const policy = resolveTargetPolicy(this.config, target)
@@ -396,23 +395,62 @@ export class BasicCompactionEngine extends CompactionEngine {
     if (measurement.totalTokens < spec.thresholdTokens) return null
 
     let result: CompactionResult | null = null
+    let checkpointTokens: number | null = null
     for (let attempt = 0; attempt <= spec.compactionRetries; attempt += 1) {
       const range = selectCompactableRange(agent.session, measurement, spec.retainTokens)
       if (range === null) {
-        if (result === null && !requireBelowThreshold) return null
-        throw new Error(
+        throw new LlmError(
           'no safe compaction range can reduce context below threshold '
           + `(${measurement.totalTokens} estimated tokens >= threshold ${spec.thresholdTokens})`,
+          CONTEXT_WINDOW_EXCEEDED_CODE,
         )
       }
-      result = await this.compactRegion(range.start, range.end, agent, signal)
+      const selected = measurement.nodes.filter(node => node.seq >= range.start && node.seq <= range.end)
+      const compressibleTokens = selected.reduce((total, node) => total + node.tokens, 0)
+      const neededTokens = measurement.totalTokens - spec.thresholdTokens + 1
+      this.ctx.logger.info(`compaction pressure ${JSON.stringify({
+        contextWindow: spec.contextWindow,
+        thresholdTokens: spec.thresholdTokens,
+        baselineKind: measurement.baseline.kind,
+        baselineTokens: measurement.baseline.tokens,
+        surfaceDeltaTokens: measurement.surfaceDeltaTokens,
+        totalTokensBefore: measurement.totalTokens,
+        checkpointTokens,
+        neededTokens,
+        compressibleTokens,
+        attempt: attempt + 1,
+      })}`)
+      if (compressibleTokens <= neededTokens) {
+        throw new LlmError(
+          `compaction cannot reach threshold: ${neededTokens} tokens must be removed, `
+          + `but the safe selected history contains only ${compressibleTokens} estimated tokens `
+          + `(total ${measurement.totalTokens}, threshold ${spec.thresholdTokens})`,
+          CONTEXT_WINDOW_EXCEEDED_CODE,
+        )
+      }
+      const totalBefore = measurement.totalTokens
+      const compacted = await this.compactRegion(range.start, range.end, agent, signal)
+      result = compacted
       measurement = meter.measure(agent.session, header)
+      checkpointTokens = measurement.nodes
+        .filter(node => node.seq === compacted.summarySeq + 1)
+        .reduce((total, node) => total + node.tokens, 0)
+      this.ctx.logger.info(`compaction result ${JSON.stringify({
+        contextWindow: spec.contextWindow,
+        thresholdTokens: spec.thresholdTokens,
+        totalTokensBefore: totalBefore,
+        totalTokensAfter: measurement.totalTokens,
+        netReductionTokens: totalBefore - measurement.totalTokens,
+        checkpointTokens,
+        attempt: attempt + 1,
+      })}`)
       if (measurement.totalTokens < spec.thresholdTokens) return result
     }
 
-    throw new Error(
+    throw new LlmError(
       `compaction still above threshold after ${spec.compactionRetries + 1} compaction attempts `
       + `(${measurement.totalTokens} estimated tokens >= threshold ${spec.thresholdTokens})`,
+      CONTEXT_WINDOW_EXCEEDED_CODE,
     )
   }
 

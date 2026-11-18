@@ -81,7 +81,7 @@ Misconfiguration fails fast: unknown settings, duplicate per-model overrides, in
 
 ### What happens when condensation runs
 
-The oldest balanced span is replaced by one summary message and the recent tail stays verbatim; the conversation continues from the summary. The operation reports how many history items were condensed and the estimated tokens freed. If nothing can be condensed safely — for example the whole conversation is one indivisible unit — nothing changes and nothing is written to the session log. If no model is available to write the summary (no configured target and no routed request yet), condensation fails with a clear error telling you to configure the summarization provider and model or route one request.
+The oldest balanced span is replaced by one summary message and the recent tail stays verbatim; the conversation continues from the summary. The operation reports how many history items were condensed and the estimated tokens freed. If pressure remains above the threshold and no safe range can remove enough estimated tokens, automatic pressure compaction rejects the next request with `CONTEXT_WINDOW_EXCEEDED`; `/compact` can still decline without changing the session. If no model is available to write the summary (no configured target and no routed request yet), condensation fails with a clear error telling you to configure the summarization provider and model or route one request.
 
 ### Switching models
 
@@ -120,7 +120,7 @@ The backend is built on four commitments:
 
 The `agent/request` listener waits for routing listeners to select the destination, then checks its pressure before the new header is logged. It uses `compactPressure` directly because `compactIfNeeded` reads the committed header; both paths generate summaries through `summarize()`, which reads the route recorded on the latest assistant message before the committed header because a request that failed has already replaced that header. A host-only session projection, `compactionAnsweredRoute`, holds that provider/model pair, so a restored session reads it from its checkpoint; the plugin registers the projection at construction and releases it on unload.
 
-With `auto: true`, a serial `agent/pre-step` listener checks pressure before request derivation: it prices the latest durable routed request envelope through `ctx.tokenMeter`, and when pressure crosses the routed model's threshold it prunes, then summarizes the oldest balanced span while keeping a priced recent tail. Every selected range starts at the first surface node that is not a `system/message`, so a system prompt at surface node 0 is never shadowed; a later `system/message` appended by an in-history prompt update is ordinary history that the range may shadow, and the agent loop's projection then replaces node 0 with the current prompt when their text differs ([decision rule](../../core/agent-loop/README.md#understand-the-implementation)). The `agent/request-error` listener reacts to a provider-confirmed `CONTEXT_WINDOW_EXCEEDED`: it bypasses the normal threshold and retention policy, attempts one maximal balanced head reduction, and authorizes a retry only when the surface replacement generation advances and the rebuilt request budget decreases. A durable prune may permit retry even if later summarization fails. An incomplete summary never becomes a checkpoint; without a measured reduction, the original overflow remains. Cancellation stays authoritative throughout.
+With `auto: true`, a serial `agent/pre-step` listener checks pressure before request derivation: it prices the latest durable routed request envelope through `ctx.tokenMeter`, and when pressure crosses the routed model's threshold it prunes, then summarizes the oldest balanced span while keeping a priced recent tail. Before each attempt, it compares the reduction needed to reach the threshold with the selected history's total estimated tokens; an impossible reduction stops without another summary call. It logs numeric baseline, range, and net-reduction diagnostics without message content. Every selected range starts at the first surface node that is not a `system/message`, so a system prompt at surface node 0 is never shadowed; a later `system/message` appended by an in-history prompt update is ordinary history that the range may shadow, and the agent loop's projection then replaces node 0 with the current prompt when their text differs ([decision rule](../../core/agent-loop/README.md#understand-the-implementation)). The `agent/request-error` listener reacts to a provider-confirmed `CONTEXT_WINDOW_EXCEEDED`: it bypasses the normal threshold and retention policy, attempts one maximal balanced head reduction, and authorizes a retry only when the surface replacement generation advances and the rebuilt request budget decreases. A durable prune may permit retry even if later summarization fails. An incomplete summary never becomes a checkpoint; without a measured reduction, the original overflow remains. Cancellation stays authoritative throughout.
 
 Pressure policy resolves capacity from the adapter that owns the durable route. Missing capacity, output plus headroom exhausting the window, or a retained budget at least as large as the threshold makes the manual pressure path throw a target-specific configuration error. The `agent/pre-step` listener warns once for that exact target and continues the turn; provider-confirmed overflow recovery remains available. Model-switch checks instead reject the request with `MODEL_SWITCH_COMPACTION_FAILED`, including when capacity or adapter lookup fails.
 
@@ -203,40 +203,40 @@ The summarization model receives the system prompt and shadowed-region history, 
 ##### Compaction instruction (final user message)
 
 ```markdown
-You are now acting as a compaction engine for this AI coding assistant. Condense the conversation ABOVE into a structured checkpoint that lets another model resume the work with no loss of essential context.
+Condense the conversation above into a checkpoint from which another assistant can finish the current task.
 
-Output EXACTLY the Markdown structure below: keep every section, in order. Use terse bullets, not prose paragraphs. Write "(none)" for an empty section — never drop a section.
+Keep these eight headings in order. Use brief bullets and write "(none)" for an empty section. Aim for 1,000–2,000 output tokens when the facts fit; keep essential facts even if more space is needed.
 
 ## Primary Request and Intent
-- [the user's original and evolving goals; quote verbatim where the exact wording matters]
+- [current goal and latest user instructions; quote only wording whose exact form matters]
 
 ## Key Technical Concepts
-- [technologies, frameworks, patterns, and conventions in play]
+- [only concepts needed for unfinished work]
 
 ## Files and Code
-- [exact path: why it matters, key changes or snippets]
+- [paths and identifiers needed next; combine facts about the same file]
 
 ## Errors and Fixes
-- [error: how it was resolved, plus any related user feedback]
+- [unresolved errors and fixes still relevant to the task]
 
 ## Pending Jobs
-- [explicitly requested work not yet completed]
+- [requested work still incomplete]
 
 ## Current Work
-- [precisely what was in progress at this checkpoint]
+- [current state and verified results]
 
 ## Next Step
-- [the single next action, directly in line with the most recent request, or "(none)"]
+- [single next action]
 
 ## Critical Context
-- [decisions and their rationale, constraints, user preferences, open questions, data needed to continue]
+- [binding decisions, constraints, user corrections, and exact data needed later]
 
 Rules:
-- Write concise English engineering prose. Preserve exact file paths, commands, error strings, identifiers, numeric values, function signatures, and syntax fragments.
-- Capture user feedback and explicit instructions faithfully, especially corrections.
+- Write concise English engineering prose. Preserve exact paths, commands, errors, identifiers, and numbers only when needed to continue. Merge duplicates and summarize completed work in one line.
+- Preserve the user’s final goal, latest instructions, unfinished work, and decisions. Drop obsolete plans, attempts, and resolved details.
 - Do NOT mention this summarization request or that the context was compacted.
 - Output only the checkpoint text: do not call any tool or take any other action.
-- If the conversation already contains a <compacted-summary> block, it is a PRIOR checkpoint. Do not copy it forward verbatim: preserve still-true facts, drop stale ones, and merge newer information into a single consolidated summary under the same structure.
+- Treat any <compacted-summary> block as a prior checkpoint: carry forward only facts still needed, merging them with newer information. Never repeat its text verbatim.
 ```
 
 #### Token effect

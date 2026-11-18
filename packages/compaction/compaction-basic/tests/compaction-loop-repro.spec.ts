@@ -43,7 +43,7 @@ class StepwiseToolAdapter extends LlmAdapter {
       provider,
       id: model,
       name: model,
-      context: { contextWindow: 400 },
+      context: { contextWindow: 500 },
     })
   }
 
@@ -97,12 +97,7 @@ class OverflowRecoveryAdapter extends LlmAdapter {
   }
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    // The cache-reusing summarizer replays the conversation prefix and marks
-    // its call only by the compaction instruction in the trailing user message.
-    const trailing = options.messages.at(-1)?.content
-      .map(block => (block.type === 'text' ? block.text : ''))
-      .join('') ?? ''
-    if (trailing.includes('acting as a compaction engine')) {
+    if (options.purpose === 'compaction') {
       this.summaryRequests.push(options)
       yield { type: 'block-start', index: 0, blockType: 'text' }
       yield { type: 'block-end', index: 0, block: { type: 'text', text: 'RECOVERY CHECKPOINT' } }
@@ -408,7 +403,7 @@ describe('context-overflow recovery across the real loop and compaction-basic', 
           .map(block => (block.type === 'text' ? block.text : ''))
           .join('') ?? ''
         expect(instruction).toContain('Write concise English engineering prose.')
-        expect(instruction).toContain('numeric values, function signatures, and syntax fragments.')
+        expect(instruction).toContain('Merge duplicates and summarize completed work in one line.')
         expect(JSON.stringify(adapter.conversationRequests[0]!.messages)).toContain('OLD HISTORY SENTINEL')
         const retry = JSON.stringify(adapter.conversationRequests[1]!.messages)
         expect(retry).toContain('RECOVERY CHECKPOINT')

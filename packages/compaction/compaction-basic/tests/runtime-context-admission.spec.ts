@@ -22,8 +22,7 @@ class CompactionAdapter extends LlmAdapter {
   }
 
   override async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    const last = options.messages.at(-1)
-    const summarizing = last?.content.some(block => block.type === 'text' && block.text.includes('acting as a compaction engine')) === true
+    const summarizing = options.purpose === 'compaction'
     if (summarizing) this.summaries.push(options)
     else this.conversation.push(options)
     if (!summarizing && this.conversation.length === 1) {

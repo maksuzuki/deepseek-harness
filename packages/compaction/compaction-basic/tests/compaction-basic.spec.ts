@@ -835,7 +835,7 @@ describe('pressure measurement and retention', () => {
     expect(measure.mock.calls[0]).toEqual([session, session.requestHeader()])
   })
 
-  it('declines when envelope pressure is high but the surface has no compactable range', async () => {
+  it('rejects unsafe admission when envelope pressure leaves no compactable range', async () => {
     const compact = service(compactConfig)
     const bulkTools = [{ name: 'bulk', description: 'x'.repeat(100_000), parameters: { type: 'object' } }]
     const empty = Session.create(brandString<SessionId>('empty'))
@@ -844,15 +844,33 @@ describe('pressure measurement and retention', () => {
       header: { config: { provider: MODEL, model: MODEL }, tools: bulkTools },
       reason: 'initial',
     })
-    expect(await compactIfNeeded(compact, empty)).toBeNull()
+    await expect(compactIfNeeded(compact, empty)).rejects.toMatchObject({ code: CONTEXT_WINDOW_EXCEEDED_CODE })
 
     const retained = conversation(1)
     retained.append('request/header', {
       header: { config: { provider: MODEL, model: MODEL }, tools: bulkTools },
       reason: 'resume',
     })
-    expect(await compactIfNeeded(compact, retained)).toBeNull()
+    await expect(compactIfNeeded(compact, retained)).rejects.toMatchObject({ code: CONTEXT_WINDOW_EXCEEDED_CODE })
   })
+
+  it.each([24_576, 32_768, 65_536])(
+    'stops before summarization when fixed request cost exceeds a %i-token window',
+    async (contextWindow) => {
+      const ctx = createContext(contextWindow)
+      const compact = service({ auto: false, thresholdRatio: 0.7, headroomTokens: 1024,
+        maxTokens: 2048, retainTokens: 100, compactionRetries: 2 }, ctx)
+      const session = conversation(4, 'short', 'system')
+      session.append('request/header', {
+        header: { config: { provider: MODEL, model: MODEL },
+          tools: [{ name: 'bulk', description: 'x'.repeat(contextWindow * 4), parameters: { type: 'object' } }] },
+        reason: 'resume',
+      })
+      await expect(compactIfNeeded(compact, session)).rejects.toMatchObject({ code: CONTEXT_WINDOW_EXCEEDED_CODE })
+      expect(compact.calls).toHaveLength(0)
+      expect(session.snapshotEvents().filter(event => event.type === 'compaction/start')).toHaveLength(0)
+    },
+  )
 
   it('uses one unified measurement for each pressure-and-retention decision', async () => {
     const ctx = createContext()
@@ -1499,7 +1517,7 @@ describe('default one-shot summarizer', () => {
     const last = messages.at(-1)?.content[0]
     const lastText = last?.type === 'text' ? last.text : ''
     expect(lastText).toContain('Write concise English engineering prose.')
-    expect(lastText).toContain('numeric values, function signatures, and syntax fragments.')
+    expect(lastText).toContain('Merge duplicates and summarize completed work in one line.')
     expect(lastText).toContain('## Primary Request and Intent')
   })
 

@@ -81,7 +81,7 @@ kind: "package-reference"
 
 ### 压缩运行时会发生什么
 
-最旧的平衡范围会被替换为一条摘要消息，近期尾部保持逐字不变；对话从摘要继续。操作会报告压缩了多少历史项以及估算释放的 token 数。如果没有任何内容可以安全压缩——例如整个对话就是一个不可分单元——则不会有任何改变，也不会向会话日志写入任何内容。如果没有模型可以撰写摘要（既未配置目标，也还没有已路由请求），压缩会失败并给出清晰错误，提示你配置摘要提供方与模型，或先路由一次请求。
+最旧的平衡范围会被替换为一条摘要消息，近期尾部保持逐字不变；对话从摘要继续。操作会报告压缩了多少历史项以及估算释放的 token 数。如果压力仍高于阈值，而安全范围无法移除足够的估算 token，自动压力压缩会以 `CONTEXT_WINDOW_EXCEEDED` 拒绝下一次请求；`/compact` 仍可在不更改会话的情况下跳过压缩。如果没有模型可以撰写摘要（既未配置目标，也还没有已路由请求），压缩会失败并给出清晰错误，提示你配置摘要提供方与模型，或先路由一次请求。
 
 ### 切换模型
 
@@ -120,7 +120,7 @@ kind: "package-reference"
 
 `agent/request` listener 等待路由 listener 选定目标，再在新 header 记入日志前检查其压力。它直接使用 `compactPressure`，因为 `compactIfNeeded` 读取的是已提交的 header；两条路径都通过 `summarize()` 生成摘要；它先读取最新助手消息上记录的路由，再读取已提交的 header，因为失败的请求已经替换了该 header。仅供宿主使用的会话投影 `compactionAnsweredRoute` 保存这对提供方／模型，因此恢复的会话从检查点读取它；插件在构造时注册该投影，卸载时释放。
 
-当 `auto: true` 时，串行 `agent/pre-step` listener 会在请求派生前检查压力：它通过 `ctx.tokenMeter` 为最新持久路由请求 envelope 定价，当压力越过路由模型的阈值时，先剪枝，再在保留已定价近期尾部的同时摘要最旧的平衡范围。每个选定范围都从第一个不是 `system/message` 的 surface 节点开始，因此位于 surface 节点 0 的系统提示词永不会被遮蔽；由历史内提示词更新追加的后续 `system/message` 是普通历史，范围可以遮蔽它，agent loop（智能体循环）的投影随后会在二者文本不同时用当前提示词替换节点 0（[决策规则](../../core/agent-loop/README.zh.md#understand-the-implementation)）。`agent/request-error` listener 响应提供方确认的 `CONTEXT_WINDOW_EXCEEDED`：它绕过常规阈值与保留策略，尝试一次最大平衡头部缩减，并且只在表层替换 generation 前进且重建请求的预算下降后才授权重试。即使后续摘要失败，持久裁剪仍可能允许重试。不完整的摘要不会成为检查点；若没有测得预算下降，则保留原始溢出错误。取消全程保持最终决定权。
+当 `auto: true` 时，串行 `agent/pre-step` listener 会在请求派生前检查压力：它通过 `ctx.tokenMeter` 为最新持久路由请求 envelope 定价，当压力越过路由模型的阈值时，先剪枝，再在保留已定价近期尾部的同时摘要最旧的平衡范围。每次尝试前，它比较达到阈值所需的减少量与选定历史的估算 token 总量；无法达到阈值时，不再发起摘要请求。它只记录基线、范围和净减少量等数字诊断，不记录消息内容。每个选定范围都从第一个不是 `system/message` 的 surface 节点开始，因此位于 surface 节点 0 的系统提示词永不会被遮蔽；由历史内提示词更新追加的后续 `system/message` 是普通历史，范围可以遮蔽它，agent loop（智能体循环）的投影随后会在二者文本不同时用当前提示词替换节点 0（[决策规则](../../core/agent-loop/README.zh.md#understand-the-implementation)）。`agent/request-error` listener 响应提供方确认的 `CONTEXT_WINDOW_EXCEEDED`：它绕过常规阈值与保留策略，尝试一次最大平衡头部缩减，并且只在表层替换 generation 前进且重建请求的预算下降后才授权重试。即使后续摘要失败，持久裁剪仍可能允许重试。不完整的摘要不会成为检查点；若没有测得预算下降，则保留原始溢出错误。取消全程保持最终决定权。
 
 压力策略从拥有持久路由的适配器解析容量。容量缺失、输出预留与余量耗尽窗口，或保留预算不小于阈值时，手动压力路径会抛出目标特定配置错误。`agent/pre-step` listener 会对该精确目标警告一次，并继续本轮；提供方确认溢出后的恢复仍然可用。模型切换检查则以 `MODEL_SWITCH_COMPACTION_FAILED` 拒绝请求，容量或适配器查找失败时亦如此。
 
@@ -203,40 +203,40 @@ This is an automatically generated checkpoint condensing an earlier span of the 
 ##### 压缩指令（最终 user 消息）
 
 ```markdown
-You are now acting as a compaction engine for this AI coding assistant. Condense the conversation ABOVE into a structured checkpoint that lets another model resume the work with no loss of essential context.
+Condense the conversation above into a checkpoint from which another assistant can finish the current task.
 
-Output EXACTLY the Markdown structure below: keep every section, in order. Use terse bullets, not prose paragraphs. Write "(none)" for an empty section — never drop a section.
+Keep these eight headings in order. Use brief bullets and write "(none)" for an empty section. Aim for 1,000–2,000 output tokens when the facts fit; keep essential facts even if more space is needed.
 
 ## Primary Request and Intent
-- [the user's original and evolving goals; quote verbatim where the exact wording matters]
+- [current goal and latest user instructions; quote only wording whose exact form matters]
 
 ## Key Technical Concepts
-- [technologies, frameworks, patterns, and conventions in play]
+- [only concepts needed for unfinished work]
 
 ## Files and Code
-- [exact path: why it matters, key changes or snippets]
+- [paths and identifiers needed next; combine facts about the same file]
 
 ## Errors and Fixes
-- [error: how it was resolved, plus any related user feedback]
+- [unresolved errors and fixes still relevant to the task]
 
 ## Pending Jobs
-- [explicitly requested work not yet completed]
+- [requested work still incomplete]
 
 ## Current Work
-- [precisely what was in progress at this checkpoint]
+- [current state and verified results]
 
 ## Next Step
-- [the single next action, directly in line with the most recent request, or "(none)"]
+- [single next action]
 
 ## Critical Context
-- [decisions and their rationale, constraints, user preferences, open questions, data needed to continue]
+- [binding decisions, constraints, user corrections, and exact data needed later]
 
 Rules:
-- Write concise English engineering prose. Preserve exact file paths, commands, error strings, identifiers, numeric values, function signatures, and syntax fragments.
-- Capture user feedback and explicit instructions faithfully, especially corrections.
+- Write concise English engineering prose. Preserve exact paths, commands, errors, identifiers, and numbers only when needed to continue. Merge duplicates and summarize completed work in one line.
+- Preserve the user’s final goal, latest instructions, unfinished work, and decisions. Drop obsolete plans, attempts, and resolved details.
 - Do NOT mention this summarization request or that the context was compacted.
 - Output only the checkpoint text: do not call any tool or take any other action.
-- If the conversation already contains a <compacted-summary> block, it is a PRIOR checkpoint. Do not copy it forward verbatim: preserve still-true facts, drop stale ones, and merge newer information into a single consolidated summary under the same structure.
+- Treat any <compacted-summary> block as a prior checkpoint: carry forward only facts still needed, merging them with newer information. Never repeat its text verbatim.
 ```
 
 #### Token 影响
