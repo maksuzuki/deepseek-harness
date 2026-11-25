@@ -131,12 +131,17 @@ class OverflowRecoveryAdapter extends LlmAdapter {
   }
 }
 
-async function harness(toolSteps: number): Promise<{ ctx: Context; compact: ReproCompactionEngine }> {
+async function harness(toolSteps: number): Promise<{
+  ctx: Context
+  compact: ReproCompactionEngine
+  adapter: StepwiseToolAdapter
+}> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(TokenMeter)
-  ctx.llm.registerAdapter(['mock'], new StepwiseToolAdapter(toolSteps))
+  const adapter = new StepwiseToolAdapter(toolSteps)
+  ctx.llm.registerAdapter(['mock'], adapter)
   ctx.tools.register(defineContentToolFixture({
     name: 'work',
     description: 'does work',
@@ -155,7 +160,7 @@ async function harness(toolSteps: number): Promise<{ ctx: Context; compact: Repr
     maxTokens: 8192,
     compactionRetries: 1,
   })
-  return { ctx, compact }
+  return { ctx, compact, adapter }
 }
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
@@ -282,6 +287,40 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
         expect(toolPairingBalancedAfter(agent.session, cp.seq),
           `checkpoint seq ${cp.seq} must be a balanced region END`).toBe(true)
       }
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('continues inference after repeated automatic compactions', async () => {
+    const toolSteps = 16
+    const { ctx, adapter } = await harness(toolSteps)
+    try {
+      const agent = await ctx.agentLoop.create(brandString<SessionId>('repeated-auto-compaction'), {
+        provider: 'mock',
+        model: 'mock',
+      })
+      agent.followup(createUserMessage({
+        content: [{ type: 'text', text: 'continue through repeated pressure' }],
+        source: { kind: 'user' },
+      }))
+      await waitForIdle(ctx, agent)
+
+      const events = agent.session.snapshotEvents()
+      const summaries = events.filter((event): event is SessionEvent<'compaction/summary'> => (
+        event.type === 'compaction/summary'
+      ))
+      expect(summaries.length).toBeGreaterThanOrEqual(2)
+      expect(summaries.slice(1).some(event => (
+        event.data.shadowedRange.start > event.data.shadowedRange.end
+      ))).toBe(true)
+      expect(adapter.calls).toBe(toolSteps + 1)
+      expect(events.findLast(event => event.type === 'assistant/message'))
+        .toMatchObject({ data: { message: { content: [{ type: 'text', text: 'all done' }] } } })
+      expect(events.at(-1)).toMatchObject({
+        type: 'turn/end',
+        data: { reason: { kind: 'completed' } },
+      })
     } finally {
       await ctx.fiber.dispose()
     }

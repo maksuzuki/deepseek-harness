@@ -39,6 +39,13 @@ interface SurfaceSelection {
   readonly shadowedSeqs: readonly SessionSeq[]
 }
 
+/** One validated compactable span with its nodes from the caller's measurement. */
+interface MeasuredSurfaceSelection {
+  readonly start: SessionSeq
+  readonly end: SessionSeq
+  readonly selectedNodes: TokenMeasurement['nodes']
+}
+
 /** A selection with its priced snapshot and the replay input built from it. */
 interface PreparedCompaction extends SurfaceSelection {
   readonly measurement: TokenMeasurement
@@ -113,13 +120,13 @@ function systemHead(session: Session, headSeq: SessionSeq): SessionEvent<'system
  * @param session - session supplying authoritative current surface positions.
  * @param measurement - unified pressure and surface measurement from the conversation meter.
  * @param retainTokens - minimum recent tail budget retained verbatim.
- * @returns the inclusive positional seq range to compact, or `null`.
+ * @returns the inclusive positional seq range and measured nodes to compact, or `null`.
  */
 export function selectCompactableRange(
   session: Session,
   measurement: TokenMeasurement,
   retainTokens: number,
-): { start: SessionSeq; end: SessionSeq } | null {
+): MeasuredSurfaceSelection | null {
   const pricedNodes = measurement.nodes
   if (pricedNodes.length === 0) return null
 
@@ -152,7 +159,12 @@ export function selectCompactableRange(
   const first = surfaceNodes[firstIdx]!
   // oxlint-disable-next-line typescript/no-non-null-assertion
   const cutoff = surfaceNodes[keepFromIdx - 1]!
-  return { start: first, end: cutoff }
+  const selection = validateSurfaceRegion(session, first, cutoff)
+  return {
+    start: first,
+    end: cutoff,
+    selectedNodes: pricedNodes.slice(selection.startIdx, selection.endIdx + 1),
+  }
 }
 
 /**

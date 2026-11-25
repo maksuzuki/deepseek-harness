@@ -405,8 +405,7 @@ export class BasicCompactionEngine extends CompactionEngine {
           CONTEXT_WINDOW_EXCEEDED_CODE,
         )
       }
-      const selected = measurement.nodes.filter(node => node.seq >= range.start && node.seq <= range.end)
-      const compressibleTokens = selected.reduce((total, node) => total + node.tokens, 0)
+      const compressibleTokens = range.selectedNodes.reduce((total, node) => total + node.tokens, 0)
       const neededTokens = measurement.totalTokens - spec.thresholdTokens + 1
       this.ctx.logger.info(`compaction pressure ${JSON.stringify({
         contextWindow: spec.contextWindow,

@@ -763,6 +763,53 @@ describe('pressure measurement and retention', () => {
     expect(session.surface.nodes.length).toBeLessThan(8)
   })
 
+  it('returns measured nodes in surface order for a monotonic range', () => {
+    const ctx = createContext()
+    const session = conversation(4)
+    const measured = ctx.tokenMeter.measure(session)
+    const range = selectCompactableRange(session, measured, compactConfig.retainTokens!)
+    expect(range).not.toBeNull()
+    if (range === null) throw new Error('expected a compactable range')
+    expect(range.start).toBeLessThan(range.end)
+    const startIdx = session.surface.nodes.indexOf(range.start)
+    const endIdx = session.surface.nodes.indexOf(range.end)
+    expect(range.selectedNodes.map(node => node.seq))
+      .toEqual(session.surface.nodes.slice(startIdx, endIdx + 1))
+    expect(range.selectedNodes.every(node => !session.surface.nodes.slice(endIdx + 1).includes(node.seq)))
+      .toBe(true)
+  })
+
+  it('prices a positional range after a non-monotonic checkpoint', async () => {
+    const ctx = createContext()
+    const compact = service({
+      auto: false,
+      thresholdRatio: 0.8,
+      retainTokens: 180,
+      compactionRetries: 0,
+    }, ctx)
+    const session = conversation(6)
+    const initialNodes = [...session.surface.nodes]
+    await compact.compactRegion(initialNodes[0]!, initialNodes[1]!, agent(session, MODEL), SIGNAL)
+
+    const measured = ctx.tokenMeter.measure(session)
+    expect(measured.nodes[0]!.seq).toBeGreaterThan(measured.nodes[1]!.seq)
+    const range = selectCompactableRange(session, measured, 180)
+    expect(range).not.toBeNull()
+    if (range === null) throw new Error('expected a compactable range')
+    expect(range.start).toBeGreaterThan(range.end)
+    const startIdx = session.surface.nodes.indexOf(range.start)
+    const endIdx = session.surface.nodes.indexOf(range.end)
+    const selectedSeqs = session.surface.nodes.slice(startIdx, endIdx + 1)
+    const retainedSeqs = session.surface.nodes.slice(endIdx + 1)
+    expect(range.selectedNodes.map(node => node.seq)).toEqual(selectedSeqs)
+    expect(range.selectedNodes.every(node => !retainedSeqs.includes(node.seq))).toBe(true)
+
+    const result = await compactIfNeeded(compact, session)
+
+    expect(result?.shadowedSeqs).toEqual(selectedSeqs)
+    expect(result?.shadowedSeqs.every(seq => !retainedSeqs.includes(seq))).toBe(true)
+  })
+
   it('starts the range after a system head and keeps that node at surface position 0', async () => {
     const ctx = createContext()
     const compact = service(compactConfig, ctx)
@@ -919,14 +966,14 @@ describe('pressure measurement and retention', () => {
     }
   })
 
-  it('rejects a priced surface that is not the current positional surface', () => {
+  it('rejects a priced surface with missing or positionally reordered nodes', () => {
     const ctx = createContext()
     const session = conversation(2)
     const priced = ctx.tokenMeter.measure(session)
-    expect(() => selectCompactableRange(session, {
-      ...priced,
-      nodes: priced.nodes.slice(1),
-    }, 1)).toThrow(/does not match/)
+    const reordered = [priced.nodes[1]!, priced.nodes[0]!, ...priced.nodes.slice(2)]
+    for (const nodes of [priced.nodes.slice(1), reordered]) {
+      expect(() => selectCompactableRange(session, { ...priced, nodes }, 1)).toThrow(/does not match/)
+    }
   })
 
   it('declines when rounding a cut would consume the only tool pair', () => {
