@@ -34,8 +34,28 @@ import type { SummarizationInput, SummaryResult, SummaryRoute } from './summariz
 import type {
   BasicCompactionConfig,
   ModelCompactPolicyConfig,
+  ResolvedCompactSpec,
   ResolvedConfig,
 } from './types.ts'
+
+type AutomaticCompactionTrigger = 'pre-step' | 'model-switch' | 'provider-overflow'
+
+interface AutomaticCompactionContext {
+  readonly trigger: AutomaticCompactionTrigger
+  readonly turn: number
+  readonly step: number
+}
+
+interface PressureSelectionLog {
+  readonly rangeStartSeq: SessionSeq
+  readonly rangeEndSeq: SessionSeq
+  readonly rangeStartIndex: number
+  readonly rangeEndIndex: number
+  readonly selectedNodeCount: number
+  readonly compressibleTokens: number
+  readonly neededTokens: number
+  readonly attempt: number
+}
 
 export type {
   BasicCompactionConfig,
@@ -139,6 +159,9 @@ export class BasicCompactionEngine extends CompactionEngine {
   private readonly warnedPressureConfigTargets = new Set<string>()
   private readonly overflowRetries = new WeakMap<Agent, number>()
   private readonly overflowAgents = new WeakMap<Session, Agent>()
+  private readonly loggedDisabledSessions = new WeakSet<Session>()
+  /** Automatic Agent operations are serialized; this carries their current log identity through the override hook. */
+  private readonly automaticContext = new WeakMap<Agent, AutomaticCompactionContext>()
   /** Registered at construction; `summarize()` awaits it, so no read precedes readiness. */
   private readonly answeredRoute: Promise<ProjectionHandle<AnsweredRoute>>
 
@@ -147,11 +170,26 @@ export class BasicCompactionEngine extends CompactionEngine {
     this.config = resolveConfig(config)
     this.answeredRoute = this.ctx.sessionProjections.register(answeredRouteProjectionDefinition)
     if (this.config.auto) this._registerAutomaticCompaction()
+    else this._registerDisabledObservation()
   }
 
   /** Fail plugin activation when the answered-route projection cannot register. */
   protected async [Service.init](): Promise<void> {
     await this.answeredRoute
+  }
+
+  /** Record disabled automatic compaction once per live Session without measuring pressure. */
+  private _registerDisabledObservation(): void {
+    this.ctx.on('agent/pre-step', ({ agent, turn, step, signal }, next) => {
+      if (!signal.aborted && !this.loggedDisabledSessions.has(agent.session)) {
+        this.loggedDisabledSessions.add(agent.session)
+        this.logPressureDecision(agent, routedTarget(agent.session), { trigger: 'pre-step', turn, step }, {
+          decision: 'skip',
+          reason: 'disabled',
+        })
+      }
+      return next()
+    })
   }
 
   /**
@@ -170,12 +208,16 @@ export class BasicCompactionEngine extends CompactionEngine {
     }
 
     ctx.on('agent/pre-step', async (
-      { agent, signal },
+      { agent, turn, step, signal },
       next,
     ): Promise<PreStepDecision> => {
       if (!signal.aborted) {
         try {
-          const result = await this.compactIfNeeded(agent, 'pressure', signal)
+          const result = await this.withAutomaticContext(
+            agent,
+            { trigger: 'pre-step', turn, step },
+            () => this.compactIfNeeded(agent, 'pressure', signal),
+          )
           if (result !== null) logResult(result, 'step pressure')
         } catch (error: unknown) {
           if (error instanceof TargetPressureConfigError) {
@@ -205,14 +247,15 @@ export class BasicCompactionEngine extends CompactionEngine {
 
     // Prepend wraps routing listeners: await their final selection while the
     // committed header still identifies the model that can summarize the history.
-    ctx.on('agent/request', async ({ agent, signal }, next) => {
+    ctx.on('agent/request', async ({ agent, turn, step, signal }, next) => {
       const config = await next()
       const previous = agent.session.requestHeader()
       if (signal.aborted || previous === undefined || config.provider === '' || config.model === ''
         || (previous.config.provider === config.provider && previous.config.model === config.model)) return config
+      const context = { trigger: 'model-switch' as const, turn, step }
       try {
         const header = { ...previous, config }
-        const result = await this.compactPressure(agent, header, signal)
+        const result = await this.compactPressure(agent, header, signal, context)
         if (result !== null) logResult(result, 'model switch')
       } catch (error: unknown) {
         signal.throwIfAborted()
@@ -236,48 +279,97 @@ export class BasicCompactionEngine extends CompactionEngine {
     })
 
     ctx.on('agent/request-error', async (
-      { agent, failure, signal },
+      { agent, turn, step, failure, signal },
       next,
     ) => {
       if (failure.code !== CONTEXT_WINDOW_EXCEEDED_CODE || signal.aborted) return next()
+      const context = { trigger: 'provider-overflow' as const, turn, step }
       this.overflowAgents.set(agent.session, agent)
       const header = agent.session.requestHeader()
       const target = routedTarget(agent.session)
-      if (header === undefined || target === undefined) return next()
+      if (header === undefined || target === undefined) {
+        this.logPressureDecision(agent, target, context, {
+          decision: 'skip',
+          reason: 'missing-routed-context',
+        })
+        return next()
+      }
       const policy = resolveTargetPolicy(this.config, target)
       const retries = this.overflowRetries.get(agent) ?? 0
-      if (retries >= policy.maxOverflowRetries) return next()
+      if (retries >= policy.maxOverflowRetries) {
+        this.logPressureDecision(agent, target, context, {
+          decision: 'skip',
+          reason: 'overflow-retry-limit',
+          attempt: retries + 1,
+        })
+        return next()
+      }
 
       const generation = agent.session.surface.replaceGeneration
-      const measuredBudget = (): number | undefined => {
+      const measuredBudget = (): ReturnType<typeof ctx.tokenMeter.measure> | undefined => {
         try {
-          return ctx.tokenMeter.measure(agent.session, header).totalTokens
+          return ctx.tokenMeter.measure(agent.session, header)
         } catch (error: unknown) {
           const message = error instanceof Error ? error.message : String(error)
           ctx.logger.warn(`context-overflow budget measurement failed: ${message}; preserving the original request error`)
           return undefined
         }
       }
-      const budgetBefore = measuredBudget()
-      if (budgetBefore === undefined) return next()
-      const reduced = (): boolean => {
-        if (signal.aborted || agent.session.surface.replaceGeneration <= generation) return false
-        const budgetAfter = measuredBudget()
-        if (budgetAfter === undefined) return false
-        if (budgetAfter < budgetBefore) return true
+      const measurementBefore = measuredBudget()
+      if (measurementBefore === undefined) {
+        this.logPressureDecision(agent, target, context, {
+          decision: 'error',
+          reason: 'measurement-failed',
+        })
+        return next()
+      }
+      const budgetBefore = measurementBefore.totalTokens
+      this.logPressureDecision(agent, target, context, {
+        decision: 'recover',
+        reason: 'provider-confirmed-overflow',
+        ...this.measurementLog(measurementBefore),
+        attempt: retries + 1,
+      })
+      const reduced = (): {
+        reduced: boolean
+        budgetAfter: number | null
+        failure?: 'measurement-failed'
+      } => {
+        if (signal.aborted || agent.session.surface.replaceGeneration <= generation) {
+          return { reduced: false, budgetAfter: null }
+        }
+        const measurementAfter = measuredBudget()
+        if (measurementAfter === undefined) {
+          return { reduced: false, budgetAfter: null, failure: 'measurement-failed' }
+        }
+        const budgetAfter = measurementAfter.totalTokens
+        if (budgetAfter < budgetBefore) return { reduced: true, budgetAfter }
         ctx.logger.warn(
           'context-overflow compaction did not reduce the rebuilt request budget '
           + `(${budgetAfter} estimated tokens >= ${budgetBefore}); preserving the original request error`,
         )
-        return false
+        return { reduced: false, budgetAfter }
       }
       let result: CompactionResult | null
       try {
-        result = await this.compactIfNeeded(agent, 'context-overflow', signal)
+        result = await this.withAutomaticContext(
+          agent,
+          context,
+          () => this.compactIfNeeded(agent, 'context-overflow', signal),
+        )
       } catch (recoveryError: unknown) {
         const message = recoveryError instanceof Error ? recoveryError.message : String(recoveryError)
         // A durable prune can still make retry safe when summarization fails.
-        if (reduced()) {
+        const reduction = reduced()
+        this.logPressureResult(agent, target, context, {
+          attempt: retries + 1,
+          success: false,
+          totalTokensBefore: budgetBefore,
+          totalTokensAfter: reduction.budgetAfter,
+          netReductionTokens: reduction.budgetAfter === null ? null : budgetBefore - reduction.budgetAfter,
+          outcome: reduction.reduced ? 'prune-only-recovery' : reduction.failure ?? 'recovery-failed',
+        })
+        if (reduction.reduced) {
           ctx.logger.warn(
             `context-overflow compaction failed after durable surface progress: ${message}; `
             + 'retrying from the replacement surface',
@@ -293,7 +385,18 @@ export class BasicCompactionEngine extends CompactionEngine {
         )
         return next()
       }
-      if (!reduced()) return next()
+      const reduction = reduced()
+      this.logPressureResult(agent, target, context, {
+        attempt: retries + 1,
+        success: reduction.reduced,
+        totalTokensBefore: budgetBefore,
+        totalTokensAfter: reduction.budgetAfter,
+        netReductionTokens: reduction.budgetAfter === null ? null : budgetBefore - reduction.budgetAfter,
+        outcome: reduction.failure ?? (reduction.reduced
+          ? result === null ? 'prune-only-recovery' : 'compaction-recovery'
+          : result === null ? 'no-safe-range' : 'no-reduction'),
+      })
+      if (!reduction.reduced) return next()
       if (result !== null) logResult(result, 'context overflow recovery')
       this.overflowRetries.set(agent, retries + 1)
       return { kind: 'retry' }
@@ -341,10 +444,19 @@ export class BasicCompactionEngine extends CompactionEngine {
     signal: AbortSignal,
   ): Promise<CompactionResult | null> {
     const header = agent.session.requestHeader()
-    if (header === undefined || routedTarget(agent.session) === undefined) return null
+    const context = this.automaticContext.get(agent)
+    if (header === undefined || routedTarget(agent.session) === undefined) {
+      if (context !== undefined) {
+        this.logPressureDecision(agent, undefined, context, {
+          decision: 'skip',
+          reason: 'missing-routed-context',
+        })
+      }
+      return null
+    }
     switch (trigger) {
       case 'pressure':
-        return this.compactPressure(agent, header, signal)
+        return this.compactPressure(agent, header, signal, context)
       case 'context-overflow': {
         this.ctx.get('toolResultPruner')?.pruneSession(agent.session)
         const measurement = this.ctx.tokenMeter.measure(agent.session)
@@ -363,42 +475,136 @@ export class BasicCompactionEngine extends CompactionEngine {
     agent: Agent,
     header: EpochHeader,
     signal: AbortSignal,
+    context?: AutomaticCompactionContext,
   ): Promise<CompactionResult | null> {
     const target = header.config
     const policy = resolveTargetPolicy(this.config, target)
     const meter = this.ctx.tokenMeter
-    let measurement = meter.measure(agent.session, header)
+    let measurement: ReturnType<typeof meter.measure>
+    try {
+      measurement = meter.measure(agent.session, header)
+    } catch (error: unknown) {
+      this.logPressureDecision(agent, target, context, {
+        decision: 'error',
+        reason: 'measurement-failed',
+        measurementPhase: 'initial',
+      })
+      throw error
+    }
     const prune = this.ctx.get('toolResultPruner')
-    const info = await this.ctx.llm.resolveModelInfo(target.provider, target.model, signal)
-    assertNoActiveCompaction(agent.session, 'automatic pressure compaction')
+    let info: Awaited<ReturnType<typeof this.ctx.llm.resolveModelInfo>>
+    try {
+      info = await this.ctx.llm.resolveModelInfo(target.provider, target.model, signal)
+    } catch (error: unknown) {
+      this.logPressureDecision(agent, target, context, {
+        decision: 'error',
+        reason: 'model-info-resolution-failed',
+        ...this.measurementLog(measurement),
+      })
+      throw error
+    }
+    try {
+      assertNoActiveCompaction(agent.session, 'automatic pressure compaction')
+    } catch (error: unknown) {
+      this.logPressureDecision(agent, target, context, {
+        decision: 'error',
+        reason: 'compaction-already-active',
+        contextWindow: info.context?.contextWindow ?? null,
+        reservedCompletionTokens: reservedCompletionTokens(header, info.defaultMaxTokens),
+        headroomTokens: policy.headroomTokens,
+        thresholdRatio: policy.thresholdRatio,
+        ...this.measurementLog(measurement),
+      })
+      throw error
+    }
     const targetKey = `${target.provider}/${target.model}`
     if (info.context === undefined) {
-      throw new TargetPressureConfigError(
+      const error = new TargetPressureConfigError(
         targetKey,
         `compaction-basic: no context capacity for ${targetKey}; `
         + 'configure contextWindow on that adapter model',
       )
+      this.logPressureDecision(agent, target, context, {
+        decision: 'error',
+        reason: 'context-policy-resolution-failed',
+        ...this.measurementLog(measurement),
+      })
+      throw error
     }
-    const spec = resolveCompactSpec(
-      policy,
-      info.context.contextWindow,
-      reservedCompletionTokens(header, info.defaultMaxTokens),
-    )
-    if (measurement.totalTokens < spec.thresholdTokens) return null
+    const reservedTokens = reservedCompletionTokens(header, info.defaultMaxTokens)
+    let spec: ResolvedCompactSpec
+    try {
+      spec = resolveCompactSpec(policy, info.context.contextWindow, reservedTokens)
+    } catch (error: unknown) {
+      this.logPressureDecision(agent, target, context, {
+        decision: 'error',
+        reason: 'context-policy-resolution-failed',
+        contextWindow: info.context.contextWindow,
+        reservedCompletionTokens: reservedTokens,
+        headroomTokens: policy.headroomTokens,
+        thresholdRatio: policy.thresholdRatio,
+        ...this.measurementLog(measurement),
+      })
+      throw error
+    }
+    const policyLog = {
+      contextWindow: spec.contextWindow,
+      reservedCompletionTokens: reservedTokens,
+      headroomTokens: policy.headroomTokens,
+      thresholdRatio: policy.thresholdRatio,
+      thresholdTokens: spec.thresholdTokens,
+      retainTokens: spec.retainTokens,
+    }
+    if (measurement.totalTokens < spec.thresholdTokens) {
+      this.logPressureDecision(agent, target, context, {
+        decision: 'skip',
+        reason: 'below-threshold',
+        ...policyLog,
+        ...this.measurementLog(measurement),
+      })
+      return null
+    }
 
     // Once pressure qualifies, land the model-free pass before choosing a
     // summary range, then remeasure through the singleton replay fold.
     if (prune !== undefined) {
       prune.pruneSession(agent.session)
-      measurement = meter.measure(agent.session, header)
+      try {
+        measurement = meter.measure(agent.session, header)
+      } catch (error: unknown) {
+        this.logPressureDecision(agent, target, context, {
+          decision: 'error',
+          reason: 'measurement-failed',
+          measurementPhase: 'post-prune',
+          ...policyLog,
+        })
+        throw error
+      }
     }
-    if (measurement.totalTokens < spec.thresholdTokens) return null
+    if (measurement.totalTokens < spec.thresholdTokens) {
+      this.logPressureDecision(agent, target, context, {
+        decision: 'skip',
+        reason: 'tool-result-pruning-cleared-pressure',
+        ...policyLog,
+        ...this.measurementLog(measurement),
+      })
+      return null
+    }
 
     let result: CompactionResult | null = null
     let checkpointTokens: number | null = null
     for (let attempt = 0; attempt <= spec.compactionRetries; attempt += 1) {
       const range = selectCompactableRange(agent.session, measurement, spec.retainTokens)
       if (range === null) {
+        const fields = {
+          decision: 'error',
+          reason: 'no-safe-range',
+          ...policyLog,
+          ...this.measurementLog(measurement),
+          attempt: attempt + 1,
+        }
+        if (attempt === 0) this.logPressureDecision(agent, target, context, fields)
+        else this.logPressureAttempt(agent, target, context, fields)
         throw new LlmError(
           'no safe compaction range can reduce context below threshold '
           + `(${measurement.totalTokens} estimated tokens >= threshold ${spec.thresholdTokens})`,
@@ -407,19 +613,18 @@ export class BasicCompactionEngine extends CompactionEngine {
       }
       const compressibleTokens = range.selectedNodes.reduce((total, node) => total + node.tokens, 0)
       const neededTokens = measurement.totalTokens - spec.thresholdTokens + 1
-      this.ctx.logger.info(`compaction pressure ${JSON.stringify({
-        contextWindow: spec.contextWindow,
-        thresholdTokens: spec.thresholdTokens,
-        baselineKind: measurement.baseline.kind,
-        baselineTokens: measurement.baseline.tokens,
-        surfaceDeltaTokens: measurement.surfaceDeltaTokens,
-        totalTokensBefore: measurement.totalTokens,
-        checkpointTokens,
-        neededTokens,
-        compressibleTokens,
-        attempt: attempt + 1,
-      })}`)
+      const selection = this.selectionLog(agent.session, range, compressibleTokens, neededTokens, attempt + 1)
       if (compressibleTokens <= neededTokens) {
+        const fields = {
+          decision: 'error',
+          reason: 'insufficient-compressible-tokens',
+          ...policyLog,
+          ...this.measurementLog(measurement),
+          checkpointTokens,
+          ...selection,
+        }
+        if (attempt === 0) this.logPressureDecision(agent, target, context, fields)
+        else this.logPressureAttempt(agent, target, context, fields)
         throw new LlmError(
           `compaction cannot reach threshold: ${neededTokens} tokens must be removed, `
           + `but the safe selected history contains only ${compressibleTokens} estimated tokens `
@@ -427,22 +632,61 @@ export class BasicCompactionEngine extends CompactionEngine {
           CONTEXT_WINDOW_EXCEEDED_CODE,
         )
       }
+      const attemptFields = {
+        decision: 'compact',
+        reason: attempt === 0 ? 'threshold-reached' : 'threshold-still-reached',
+        ...policyLog,
+        ...this.measurementLog(measurement),
+        checkpointTokens,
+        ...selection,
+      }
+      if (attempt === 0) this.logPressureDecision(agent, target, context, attemptFields)
+      else this.logPressureAttempt(agent, target, context, attemptFields)
       const totalBefore = measurement.totalTokens
-      const compacted = await this.compactRegion(range.start, range.end, agent, signal)
+      let compacted: CompactionResult
+      try {
+        compacted = await this.compactRegion(range.start, range.end, agent, signal)
+      } catch (error: unknown) {
+        this.logPressureResult(agent, target, context, {
+          attempt: attempt + 1,
+          success: false,
+          totalTokensBefore: totalBefore,
+          totalTokensAfter: null,
+          netReductionTokens: null,
+          checkpointTokens: null,
+          outcome: 'compaction-failed',
+        })
+        throw error
+      }
       result = compacted
-      measurement = meter.measure(agent.session, header)
+      try {
+        measurement = meter.measure(agent.session, header)
+      } catch (error: unknown) {
+        this.logPressureResult(agent, target, context, {
+          attempt: attempt + 1,
+          success: false,
+          totalTokensBefore: totalBefore,
+          totalTokensAfter: null,
+          netReductionTokens: null,
+          checkpointTokens: null,
+          outcome: 'measurement-failed',
+        })
+        throw error
+      }
       checkpointTokens = measurement.nodes
         .filter(node => node.seq === compacted.summarySeq + 1)
         .reduce((total, node) => total + node.tokens, 0)
-      this.ctx.logger.info(`compaction result ${JSON.stringify({
-        contextWindow: spec.contextWindow,
-        thresholdTokens: spec.thresholdTokens,
+      this.logPressureResult(agent, target, context, {
         totalTokensBefore: totalBefore,
         totalTokensAfter: measurement.totalTokens,
         netReductionTokens: totalBefore - measurement.totalTokens,
         checkpointTokens,
         attempt: attempt + 1,
-      })}`)
+        success: true,
+        outcome: measurement.totalTokens < spec.thresholdTokens
+          ? 'below-threshold'
+          : attempt === spec.compactionRetries ? 'retries-exhausted' : 'retry-required',
+      })
       if (measurement.totalTokens < spec.thresholdTokens) return result
     }
 
@@ -451,6 +695,117 @@ export class BasicCompactionEngine extends CompactionEngine {
       + `(${measurement.totalTokens} estimated tokens >= threshold ${spec.thresholdTokens})`,
       CONTEXT_WINDOW_EXCEEDED_CODE,
     )
+  }
+
+  /** Preserve virtual dispatch while attaching the serialized automatic operation's log identity. */
+  private async withAutomaticContext<T>(
+    agent: Agent,
+    context: AutomaticCompactionContext,
+    run: () => Promise<T>,
+  ): Promise<T> {
+    this.automaticContext.set(agent, context)
+    try {
+      return await run()
+    } finally {
+      this.automaticContext.delete(agent)
+    }
+  }
+
+  /** Fields that correlate one decision with its durable step and routed request. */
+  private decisionIdentity(
+    agent: Agent,
+    target: { provider?: string; model?: string } | undefined,
+    context: AutomaticCompactionContext | undefined,
+  ): Record<string, unknown> {
+    return {
+      sessionId: agent.session.id,
+      turn: context?.turn ?? null,
+      step: context?.step ?? null,
+      provider: target?.provider ?? null,
+      model: target?.model ?? null,
+      trigger: context?.trigger ?? 'direct-pressure',
+    }
+  }
+
+  /** Token-meter components already obtained for the decision. */
+  private measurementLog(measurement: ReturnType<typeof this.ctx.tokenMeter.measure>): Record<string, unknown> {
+    return {
+      estimatedTotalTokens: measurement.totalTokens,
+      baselineKind: measurement.baseline.kind,
+      baselineTokens: measurement.baseline.tokens,
+      surfaceDeltaTokens: measurement.surfaceDeltaTokens,
+    }
+  }
+
+  /** Surface positions and token budgets for one selected attempt. */
+  private selectionLog(
+    session: Session,
+    range: NonNullable<ReturnType<typeof selectCompactableRange>>,
+    compressibleTokens: number,
+    neededTokens: number,
+    attempt: number,
+  ): PressureSelectionLog {
+    const rangeStartIndex = session.surface.nodes.indexOf(range.start)
+    const rangeEndIndex = session.surface.nodes.indexOf(range.end)
+    return {
+      rangeStartSeq: range.start,
+      rangeEndSeq: range.end,
+      rangeStartIndex,
+      rangeEndIndex,
+      selectedNodeCount: range.selectedNodes.length,
+      compressibleTokens,
+      neededTokens,
+      attempt,
+    }
+  }
+
+  /** Emit the sole structured outcome for one automatic pressure decision. */
+  private logPressureDecision(
+    agent: Agent,
+    target: { provider?: string; model?: string } | undefined,
+    context: AutomaticCompactionContext | undefined,
+    fields: Record<string, unknown>,
+  ): void {
+    this.ctx.logger.info(`compaction.pressure.decision ${JSON.stringify({
+      ...this.decisionIdentity(agent, target, context),
+      contextWindow: null,
+      reservedCompletionTokens: null,
+      headroomTokens: null,
+      thresholdRatio: null,
+      thresholdTokens: null,
+      retainTokens: null,
+      estimatedTotalTokens: null,
+      baselineKind: 'unavailable',
+      baselineTokens: null,
+      surfaceDeltaTokens: null,
+      ...fields,
+    })}`)
+  }
+
+  /** Emit execution outcome fields that become known only after an attempt. */
+  private logPressureResult(
+    agent: Agent,
+    target: { provider?: string; model?: string } | undefined,
+    context: AutomaticCompactionContext | undefined,
+    fields: Record<string, unknown>,
+  ): void {
+    this.ctx.logger.info(`compaction.pressure.result ${JSON.stringify({
+      ...this.decisionIdentity(agent, target, context),
+      ...fields,
+    })}`)
+  }
+
+  /** Emit retry detail after the one top-level pressure decision. */
+  private logPressureAttempt(
+    agent: Agent,
+    target: { provider?: string; model?: string } | undefined,
+    context: AutomaticCompactionContext | undefined,
+    fields: Record<string, unknown>,
+  ): void {
+    this.ctx.logger.info(`compaction.pressure.attempt ${JSON.stringify({
+      ...this.decisionIdentity(agent, target, context),
+      ...fields,
+    })}`)
   }
 
   /**

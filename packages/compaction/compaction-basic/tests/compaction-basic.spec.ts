@@ -44,6 +44,15 @@ declare module '@deepseek-ai/dsh-llm' {
 const SIGNAL = new AbortController().signal
 const MODEL = 'test-model'
 
+/** Capture and decode one structured logger event without depending on logger formatting. */
+function captureStructuredLogs(ctx: Context): (event: string) => Array<Record<string, unknown>> {
+  const messages: string[] = []
+  ctx.logger.info = ((message: string) => void messages.push(message)) as typeof ctx.logger.info
+  return event => messages
+    .filter(message => message.startsWith(`${event} `))
+    .map(message => JSON.parse(message.slice(event.length + 1)) as Record<string, unknown>)
+}
+
 class ContextAdapter extends LlmAdapter {
   constructor(private readonly contextWindow: number) {
     super()
@@ -781,6 +790,7 @@ describe('pressure measurement and retention', () => {
 
   it('prices a positional range after a non-monotonic checkpoint', async () => {
     const ctx = createContext()
+    const logs = captureStructuredLogs(ctx)
     const compact = service({
       auto: false,
       thresholdRatio: 0.8,
@@ -808,6 +818,15 @@ describe('pressure measurement and retention', () => {
 
     expect(result?.shadowedSeqs).toEqual(selectedSeqs)
     expect(result?.shadowedSeqs.every(seq => !retainedSeqs.includes(seq))).toBe(true)
+    expect(logs('compaction.pressure.decision')).toContainEqual(expect.objectContaining({
+      decision: 'compact',
+      reason: 'threshold-reached',
+      rangeStartSeq: range.start,
+      rangeEndSeq: range.end,
+      rangeStartIndex: startIdx,
+      rangeEndIndex: endIdx,
+      selectedNodeCount: selectedSeqs.length,
+    }))
   })
 
   it('starts the range after a system head and keeps that node at surface position 0', async () => {
@@ -1979,6 +1998,7 @@ describe('model-switch pressure', () => {
 
   it('stops after the destination retry budget while retaining completed checkpoints', async () => {
     const { ctx, adapter } = harness({ compactionRetries: 2 })
+    const logs = captureStructuredLogs(ctx)
     const calls = vi.spyOn(adapter, 'stream')
     for (const length of [1_600, 1_500, 1_400]) {
       const summary = new ScriptedAdapter([{ type: 'text', text: 'm'.repeat(length) }])
@@ -1994,6 +2014,18 @@ describe('model-switch pressure', () => {
     expect(session.requestHeader()).toEqual(previous)
     expect(session.snapshotEvents().filter(event => event.type === 'compaction/summary')).toHaveLength(3)
     expect(session.snapshotEvents().filter(event => event.type === 'compaction/end')).toHaveLength(3)
+    expect(logs('compaction.pressure.decision')).toEqual([expect.objectContaining({
+      decision: 'compact', reason: 'threshold-reached', attempt: 1,
+    })])
+    expect(logs('compaction.pressure.attempt')).toEqual([
+      expect.objectContaining({ decision: 'compact', reason: 'threshold-still-reached', attempt: 2 }),
+      expect.objectContaining({ decision: 'compact', reason: 'threshold-still-reached', attempt: 3 }),
+    ])
+    expect(logs('compaction.pressure.result')).toEqual([
+      expect.objectContaining({ success: true, outcome: 'retry-required', attempt: 1 }),
+      expect.objectContaining({ success: true, outcome: 'retry-required', attempt: 2 }),
+      expect.objectContaining({ success: true, outcome: 'retries-exhausted', attempt: 3 }),
+    ])
   })
 
   it('retains an explicit summary target when switching models', async () => {
@@ -2060,12 +2092,19 @@ describe('model-switch pressure', () => {
 
   it('reports a non-Error capacity failure without changing the route', async () => {
     const { ctx } = harness()
+    const logs = captureStructuredLogs(ctx)
     vi.spyOn(ctx.llm, 'resolveModelInfo').mockRejectedValueOnce('capacity lookup unavailable')
     const session = conversation(4)
     const switching = request(ctx, session, { provider: 'small', model: 'small' })
     await expect(switching).rejects.toMatchObject({ code: 'MODEL_SWITCH_COMPACTION_FAILED' })
     await expect(switching).rejects.toThrow('capacity lookup unavailable')
     expect(session.requestHeader()?.config.provider).toBe(MODEL)
+    const decisions = logs('compaction.pressure.decision')
+    expect(decisions).toEqual([expect.objectContaining({
+      trigger: 'model-switch',
+      decision: 'error',
+      reason: 'model-info-resolution-failed',
+    })])
   })
 
   it('preserves cancellation while resolving the destination capacity', async () => {
@@ -2118,6 +2157,378 @@ describe('automatic listener and loader composition', () => {
   function overflow(message = 'provider overflow'): Error & { code: string } {
     return Object.assign(new Error(message), { code: CONTEXT_WINDOW_EXCEEDED_CODE })
   }
+
+  it('logs one correlated below-threshold decision without message content', async () => {
+    const ctx = createContext(10_000)
+    const logs = captureStructuredLogs(ctx)
+    void new TestCompactionEngine(ctx, {
+      headroomTokens: 100,
+      maxTokens: 500,
+      thresholdRatio: 0.7,
+      retainTokens: 100,
+    })
+    const secret = 'prompt-secret-must-not-be-logged'
+    const session = conversation(1, secret)
+
+    await preStep(ctx, agent(session, MODEL))
+
+    const decisions = logs('compaction.pressure.decision')
+    expect(decisions).toEqual([expect.objectContaining({
+      sessionId: session.id,
+      turn: 1,
+      step: 1,
+      provider: MODEL,
+      model: MODEL,
+      trigger: 'pre-step',
+      contextWindow: 10_000,
+      reservedCompletionTokens: 0,
+      headroomTokens: 100,
+      thresholdRatio: 0.7,
+      thresholdTokens: 7_000,
+      retainTokens: 100,
+      decision: 'skip',
+      reason: 'below-threshold',
+    })])
+    expect(typeof decisions[0]!.baselineKind).toBe('string')
+    expect(typeof decisions[0]!.baselineTokens).toBe('number')
+    expect(typeof decisions[0]!.surfaceDeltaTokens).toBe('number')
+    expect(typeof decisions[0]!.estimatedTotalTokens).toBe('number')
+    expect(JSON.stringify(decisions)).not.toContain(secret)
+  })
+
+  it('logs the selected threshold compaction and its measured reduction', async () => {
+    const ctx = createContext()
+    const logs = captureStructuredLogs(ctx)
+    void new TestCompactionEngine(ctx, {
+      headroomTokens: 0,
+      maxTokens: 128,
+      thresholdRatio: 0.5,
+      retainTokens: 180,
+    })
+    const session = conversation(4)
+
+    await preStep(ctx, agent(session, MODEL))
+
+    const decisions = logs('compaction.pressure.decision')
+    expect(decisions).toHaveLength(1)
+    expect(decisions[0]).toMatchObject({
+      decision: 'compact',
+      reason: 'threshold-reached',
+      rangeStartIndex: 0,
+      attempt: 1,
+    })
+    expect(typeof decisions[0]!.selectedNodeCount).toBe('number')
+    expect(typeof decisions[0]!.neededTokens).toBe('number')
+    expect(typeof decisions[0]!.compressibleTokens).toBe('number')
+    expect(decisions[0]!.compressibleTokens).toBeGreaterThan(decisions[0]!.neededTokens as number)
+    const results = logs('compaction.pressure.result')
+    expect(results).toHaveLength(1)
+    expect(results[0]).toMatchObject({ success: true, attempt: 1, outcome: 'below-threshold' })
+    expect(results[0]!.totalTokensAfter).toBeLessThan(results[0]!.totalTokensBefore as number)
+    expect(results[0]!.netReductionTokens).toBe(
+      (results[0]!.totalTokensBefore as number) - (results[0]!.totalTokensAfter as number),
+    )
+    expect(typeof results[0]!.checkpointTokens).toBe('number')
+  })
+
+  it('logs pruning-only pressure relief as a skip', async () => {
+    const ctx = createContext(1_000)
+    const logs = captureStructuredLogs(ctx)
+    void new ToolResultPruner(ctx, { thresholdChars: 100, headChars: 20, tailChars: 10 })
+    void new TestCompactionEngine(ctx, {
+      headroomTokens: 0,
+      maxTokens: 128,
+      thresholdRatio: 0.5,
+      retainTokens: 50,
+    })
+
+    await preStep(ctx, agent(oversizedToolResult(), MODEL))
+
+    const decisions = logs('compaction.pressure.decision')
+    expect(decisions).toEqual([expect.objectContaining({
+      decision: 'skip',
+      reason: 'tool-result-pruning-cleared-pressure',
+    })])
+    expect(typeof decisions[0]!.estimatedTotalTokens).toBe('number')
+  })
+
+  it('logs missing ranges and insufficient safe content before rejecting admission', async () => {
+    const noRangeContext = createContext()
+    const noRangeLogs = captureStructuredLogs(noRangeContext)
+    void new TestCompactionEngine(noRangeContext, {
+      headroomTokens: 0, maxTokens: 128, thresholdRatio: 0.5, retainTokens: 50,
+    })
+    const empty = Session.create(brandString<SessionId>('decision-no-range'))
+    empty.append('turn/start', { turn: 1 })
+    empty.append('request/header', {
+      header: {
+        config: { provider: MODEL, model: MODEL },
+        tools: [{ name: 'bulk', description: 'x'.repeat(100_000), parameters: { type: 'object' } }],
+      },
+      reason: 'initial',
+    })
+    await expect(preStep(noRangeContext, agent(empty, MODEL)))
+      .rejects.toMatchObject({ code: CONTEXT_WINDOW_EXCEEDED_CODE })
+    expect(noRangeLogs('compaction.pressure.decision')).toEqual([expect.objectContaining({
+      decision: 'error', reason: 'no-safe-range',
+    })])
+
+    const insufficientContext = createContext(24_576)
+    const insufficientLogs = captureStructuredLogs(insufficientContext)
+    void new TestCompactionEngine(insufficientContext, {
+      headroomTokens: 1_024, maxTokens: 2_048, thresholdRatio: 0.7, retainTokens: 100,
+    })
+    const insufficient = conversation(4)
+    insufficient.append('request/header', {
+      header: {
+        config: { provider: MODEL, model: MODEL },
+        tools: [{ name: 'bulk', description: 'x'.repeat(24_576 * 4), parameters: { type: 'object' } }],
+      },
+      reason: 'resume',
+    })
+    await expect(preStep(insufficientContext, agent(insufficient, MODEL)))
+      .rejects.toMatchObject({ code: CONTEXT_WINDOW_EXCEEDED_CODE })
+    const decisions = insufficientLogs('compaction.pressure.decision')
+    expect(decisions).toEqual([expect.objectContaining({
+      decision: 'error',
+      reason: 'insufficient-compressible-tokens',
+    })])
+    expect(typeof decisions[0]!.neededTokens).toBe('number')
+    expect(typeof decisions[0]!.compressibleTokens).toBe('number')
+  })
+
+  it('logs measurement failures before and after tool-result pruning', async () => {
+    const initialContext = createContext()
+    const initialLogs = captureStructuredLogs(initialContext)
+    void new TestCompactionEngine(initialContext, {
+      headroomTokens: 0, maxTokens: 128, thresholdRatio: 0.5, retainTokens: 50,
+    })
+    vi.spyOn(initialContext.tokenMeter, 'measure').mockImplementation(() => {
+      throw new Error('initial measurement unavailable')
+    })
+
+    await preStep(initialContext, agent(conversation(4), MODEL))
+
+    expect(initialLogs('compaction.pressure.decision')).toEqual([expect.objectContaining({
+      decision: 'error', reason: 'measurement-failed', measurementPhase: 'initial',
+    })])
+
+    const pruneContext = createContext(1_000)
+    const pruneLogs = captureStructuredLogs(pruneContext)
+    void new ToolResultPruner(pruneContext, { thresholdChars: 100, headChars: 20, tailChars: 10 })
+    void new TestCompactionEngine(pruneContext, {
+      headroomTokens: 0, maxTokens: 128, thresholdRatio: 0.5, retainTokens: 50,
+    })
+    const measure = pruneContext.tokenMeter.measure.bind(pruneContext.tokenMeter)
+    vi.spyOn(pruneContext.tokenMeter, 'measure')
+      .mockImplementationOnce((...args) => measure(...args))
+      .mockImplementationOnce(() => { throw new Error('post-prune measurement unavailable') })
+
+    await preStep(pruneContext, agent(oversizedToolResult(), MODEL))
+
+    expect(pruneLogs('compaction.pressure.decision')).toEqual([expect.objectContaining({
+      decision: 'error', reason: 'measurement-failed', measurementPhase: 'post-prune',
+    })])
+  })
+
+  it.each([false, true])(
+    'logs an existing compaction lock without changing its failure behavior (missing capacity: %s)', async (missingCapacity) => {
+      const ctx = createContext()
+      const logs = captureStructuredLogs(ctx)
+      if (missingCapacity) {
+        vi.spyOn(ctx.llm, 'resolveModelInfo').mockImplementation((provider, model) => Promise.resolve({
+          provider, id: model, name: model,
+        }))
+      }
+      void new TestCompactionEngine(ctx, {
+        headroomTokens: 0, maxTokens: 128, thresholdRatio: 0.5, retainTokens: 50,
+      })
+      const session = conversation(4)
+      session.append('compaction/start', {
+        compactionId: brandString<CompactionId>('already-active'),
+        turn: 5,
+      })
+
+      await preStep(ctx, agent(session, MODEL))
+
+      expect(logs('compaction.pressure.decision')).toEqual([expect.objectContaining({
+        decision: 'error',
+        reason: 'compaction-already-active',
+        contextWindow: missingCapacity ? null : 1_000,
+      })])
+    },
+  )
+
+  it('logs a post-compaction measurement failure as an unsuccessful result', async () => {
+    const ctx = createContext()
+    const logs = captureStructuredLogs(ctx)
+    const compact = new TestCompactionEngine(ctx, {
+      headroomTokens: 0, maxTokens: 128, thresholdRatio: 0.5, retainTokens: 180,
+    })
+    const session = conversation(4)
+    const [start, end] = session.surface.nodes
+    if (start === undefined || end === undefined) throw new Error('expected a compactable fixture')
+    const fakeResult: CompactionResult = {
+      compactionId: brandString<CompactionId>('measurement-failure'),
+      startSeq: SessionSeq(100),
+      summarySeq: SessionSeq(101),
+      endSeq: SessionSeq(102),
+      summary: [{ type: 'text', text: 'checkpoint' }],
+      shadowedRange: { start, end },
+      shadowedSeqs: [start, end],
+      shadowedTokenCount: 100,
+    }
+    vi.spyOn(compact, 'compactRegion').mockResolvedValue(fakeResult)
+    const measure = ctx.tokenMeter.measure.bind(ctx.tokenMeter)
+    vi.spyOn(ctx.tokenMeter, 'measure')
+      .mockImplementationOnce((...args) => measure(...args))
+      .mockImplementationOnce(() => { throw new Error('post-compaction measurement unavailable') })
+
+    await preStep(ctx, agent(session, MODEL))
+
+    expect(logs('compaction.pressure.decision')).toEqual([expect.objectContaining({
+      decision: 'compact', reason: 'threshold-reached',
+    })])
+    expect(logs('compaction.pressure.result')).toEqual([expect.objectContaining({
+      success: false, outcome: 'measurement-failed',
+    })])
+  })
+
+  it.each(['no-safe-range', 'insufficient-compressible-tokens'] as const)(
+    'logs retry terminal detail as an attempt for %s', async (outcome) => {
+      const ctx = createContext()
+      const logs = captureStructuredLogs(ctx)
+      const compact = new TestCompactionEngine(ctx, {
+        headroomTokens: 0,
+        maxTokens: 128,
+        thresholdRatio: 0.5,
+        retainTokens: 180,
+        compactionRetries: 1,
+      })
+      const session = conversation(4)
+      const initial = ctx.tokenMeter.measure(session)
+      const range = selectCompactableRange(session, initial, 180)
+      if (range === null) throw new Error('expected an initial compactable range')
+      const compressibleTokens = range.selectedNodes.reduce((total, node) => total + node.tokens, 0)
+      const retryMeasurement = outcome === 'no-safe-range'
+        ? {
+          ...initial,
+          baseline: { kind: 'estimated' as const, tokens: 600 },
+          totalTokens: 600,
+          surfaceTokens: initial.nodes.length,
+          nodes: initial.nodes.map(node => ({ ...node, tokens: 1 })),
+        }
+        : {
+          ...initial,
+          baseline: { kind: 'estimated' as const, tokens: 500 + compressibleTokens },
+          totalTokens: 500 + compressibleTokens,
+        }
+      const fakeResult: CompactionResult = {
+        compactionId: brandString<CompactionId>(`retry-${outcome}`),
+        startSeq: SessionSeq(100),
+        summarySeq: SessionSeq(101),
+        endSeq: SessionSeq(102),
+        summary: [{ type: 'text', text: 'checkpoint' }],
+        shadowedRange: { start: range.start, end: range.end },
+        shadowedSeqs: range.selectedNodes.map(node => node.seq),
+        shadowedTokenCount: compressibleTokens,
+      }
+      vi.spyOn(compact, 'compactRegion').mockResolvedValue(fakeResult)
+      vi.spyOn(ctx.tokenMeter, 'measure')
+        .mockReturnValueOnce(initial)
+        .mockReturnValueOnce(retryMeasurement)
+
+      await expect(preStep(ctx, agent(session, MODEL)))
+        .rejects.toMatchObject({ code: CONTEXT_WINDOW_EXCEEDED_CODE })
+
+      expect(logs('compaction.pressure.decision')).toEqual([expect.objectContaining({
+        decision: 'compact', reason: 'threshold-reached', attempt: 1,
+      })])
+      expect(logs('compaction.pressure.attempt')).toEqual([expect.objectContaining({
+        decision: 'error', reason: outcome, attempt: 2,
+      })])
+    },
+  )
+
+  it('logs exact model policy overrides and the disjoint provider usage baseline', async () => {
+    const ctx = createContext(10_000)
+    const logs = captureStructuredLogs(ctx)
+    void new TestCompactionEngine(ctx, {
+      headroomTokens: 1,
+      maxTokens: 1,
+      thresholdRatio: 0.8,
+      retainTokens: 1,
+      modelPolicies: [{
+        provider: 'actual', model: 'actual', headroomTokens: 200, thresholdRatio: 0.6, retainTokens: 77,
+      }],
+    })
+    const session = conversation(1)
+    session.append('request/header', {
+      header: { config: { provider: 'actual', model: 'actual', maxTokens: 400 } },
+      reason: 'change',
+    })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'usage anchor' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    session.append('step/start', { turn: 2, step: 1 })
+    const usage: TokenUsage = {
+      inputTokens: 2_000,
+      cacheReadTokens: 500,
+      cacheWriteTokens: 300,
+      outputTokens: 100,
+      totalTokens: 2_900,
+    }
+    session.append('assistant/message', {
+      turn: 2,
+      step: 1,
+      stream: [],
+      usage,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'anchored' }],
+        source: { kind: 'model', provider: 'actual', model: 'actual' },
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('step/end', { turn: 2, step: 1 })
+    session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+    session.append('turn/start', { turn: 3 })
+
+    await preStep(ctx, agent(session, MODEL))
+
+    expect(logs('compaction.pressure.decision')).toEqual([expect.objectContaining({
+      provider: 'actual',
+      model: 'actual',
+      reservedCompletionTokens: 400,
+      headroomTokens: 200,
+      thresholdRatio: 0.6,
+      thresholdTokens: 6_000,
+      retainTokens: 77,
+      baselineKind: 'usage',
+      baselineTokens: 2_900,
+    })])
+    const totalInputTokens = usage.inputTokens + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0)
+    expect(totalInputTokens).toBe(2_800)
+    expect(session.snapshotEvents().findLast(event => event.type === 'assistant/message')?.data.usage)
+      .toEqual(usage)
+  })
+
+  it('logs disabled automatic compaction without measuring or changing the session', async () => {
+    const ctx = createContext()
+    const logs = captureStructuredLogs(ctx)
+    void new TestCompactionEngine(ctx, { auto: false })
+    const session = conversation(4)
+    const before = session.snapshotEvents()
+    const measure = vi.spyOn(ctx.tokenMeter, 'measure')
+
+    await preStep(ctx, agent(session, MODEL))
+    await preStep(ctx, agent(session, MODEL))
+
+    expect(logs('compaction.pressure.decision')).toEqual([expect.objectContaining({
+      decision: 'skip', reason: 'disabled', trigger: 'pre-step',
+    })])
+    expect(measure).not.toHaveBeenCalled()
+    expect(session.snapshotEvents()).toEqual(before)
+  })
 
   it('compacts before a step above threshold using the durable routed model and remains idle below it', async () => {
     const ctx = createContext()
@@ -2190,6 +2601,7 @@ describe('automatic listener and loader composition', () => {
 
   it('warns once per routed target when proactive pressure has no context metadata', async () => {
     const ctx = createContext()
+    const logs = captureStructuredLogs(ctx)
     const warnings: string[] = []
     ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
     vi.spyOn(ctx.llm, 'resolveModelInfo').mockImplementation((provider, model) => Promise.resolve({
@@ -2210,6 +2622,10 @@ describe('automatic listener and loader composition', () => {
 
     expect(warnings).toEqual([
       expect.stringContaining(`no context capacity for ${MODEL}/${MODEL}`),
+    ])
+    expect(logs('compaction.pressure.decision')).toEqual([
+      expect.objectContaining({ decision: 'error', reason: 'context-policy-resolution-failed' }),
+      expect.objectContaining({ decision: 'error', reason: 'context-policy-resolution-failed' }),
     ])
   })
 
@@ -2261,6 +2677,7 @@ describe('automatic listener and loader composition', () => {
 
   it('force-compacts below normal pressure for canonical overflow and retries only after replacement', async () => {
     const ctx = createContext(10_000)
+    const logs = captureStructuredLogs(ctx)
     void new TestCompactionEngine(ctx, {
       headroomTokens: 0,
       maxTokens: 8192,
@@ -2278,10 +2695,24 @@ describe('automatic listener and loader composition', () => {
     expect(session.surface.replaceGeneration).toBe(beforeGeneration + 1)
     expect(session.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(true)
     expect(session.surface.nodes).toContain(retainedSeq)
+    const decisions = logs('compaction.pressure.decision')
+    expect(decisions).toEqual([expect.objectContaining({
+      trigger: 'provider-overflow',
+      decision: 'recover',
+      reason: 'provider-confirmed-overflow',
+    })])
+    expect(typeof decisions[0]!.estimatedTotalTokens).toBe('number')
+    const results = logs('compaction.pressure.result')
+    expect(results).toEqual([expect.objectContaining({
+      success: true,
+      outcome: 'compaction-recovery',
+    })])
+    expect(typeof results[0]!.netReductionTokens).toBe('number')
   })
 
   it('authorizes overflow retry when pruning alone advances an indivisible surface', async () => {
     const ctx = createContext(10_000)
+    const logs = captureStructuredLogs(ctx)
     void new ToolResultPruner(ctx, {
       thresholdChars: 100,
       headChars: 20,
@@ -2299,6 +2730,9 @@ describe('automatic listener and loader composition', () => {
     expect(session.surface.replaceGeneration).toBe(1)
     expect(session.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(false)
     expect(compact.calls).toHaveLength(0)
+    expect(logs('compaction.pressure.result')).toEqual([expect.objectContaining({
+      success: true, outcome: 'prune-only-recovery',
+    })])
   })
 
   it('continues overflow recovery with summarization on the pruned surface', async () => {
@@ -2324,6 +2758,7 @@ describe('automatic listener and loader composition', () => {
 
   it('retries from a durable prune when later overflow summarization throws', async () => {
     const ctx = createContext(10_000)
+    const logs = captureStructuredLogs(ctx)
     const warnings: string[] = []
     ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
     void new ToolResultPruner(ctx, {
@@ -2346,6 +2781,9 @@ describe('automatic listener and loader composition', () => {
     expect(session.snapshotEvents().findLast(event => event.type === 'compaction/end')?.data)
       .toMatchObject({ error: 'summary unavailable after prune' })
     expect(warnings).toContainEqual(expect.stringContaining('retrying from the replacement surface'))
+    expect(logs('compaction.pressure.result')).toEqual([expect.objectContaining({
+      success: false, outcome: 'prune-only-recovery',
+    })])
   })
 
   it('lets cancellation win when summary throws after a durable prune', async () => {
@@ -2393,6 +2831,7 @@ describe('automatic listener and loader composition', () => {
 
   it('does not retry when a backend reports success without replacing the surface', async () => {
     const ctx = createContext()
+    const logs = captureStructuredLogs(ctx)
     const compact = new TestCompactionEngine(ctx)
     const session = conversation(2)
     const fakeResult: CompactionResult = {
@@ -2409,6 +2848,9 @@ describe('automatic listener and loader composition', () => {
 
     expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(false)
     expect(session.surface.replaceGeneration).toBe(0)
+    expect(logs('compaction.pressure.result')).toEqual([expect.objectContaining({
+      success: false, outcome: 'no-reduction',
+    })])
   })
 
   it('does not retry when a replacement does not reduce the measured request budget', async () => {
@@ -2431,15 +2873,67 @@ describe('automatic listener and loader composition', () => {
     expect(session.surface.replaceGeneration).toBe(1)
   })
 
-  it('preserves the original overflow when request budget measurement fails', async () => {
+  it.each([new Error('measurement unavailable'), 'measurement unavailable'])(
+    'preserves the original overflow when request budget measurement fails with %s', async (failure) => {
+      const ctx = createContext()
+      const compact = new TestCompactionEngine(ctx)
+      const original = overflow('original provider overflow')
+      const run = vi.spyOn(compact, 'compactIfNeeded')
+      vi.spyOn(ctx.tokenMeter, 'measure').mockImplementation(() => { throw failure })
+      expect(await recover(ctx, agent(conversation(2), MODEL), original)).toBe(false)
+      expect(original.message).toBe('original provider overflow')
+      expect(run).not.toHaveBeenCalled()
+    },
+  )
+
+  it('preserves the original overflow when post-replacement measurement fails', async () => {
     const ctx = createContext()
+    const logs = captureStructuredLogs(ctx)
     const compact = new TestCompactionEngine(ctx)
-    const original = overflow('original provider overflow')
-    const run = vi.spyOn(compact, 'compactIfNeeded')
-    vi.spyOn(ctx.tokenMeter, 'measure').mockImplementation(() => { throw new Error('measurement unavailable') })
-    expect(await recover(ctx, agent(conversation(2), MODEL), original)).toBe(false)
-    expect(original.message).toBe('original provider overflow')
-    expect(run).not.toHaveBeenCalled()
+    const session = conversation(2)
+    const replaced = session.surface.nodes[0]!
+    vi.spyOn(compact, 'compactIfNeeded').mockImplementation(() => {
+      session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'smaller replacement' }],
+        source: { kind: 'user' },
+      }), {
+        surfaceOp: { op: 'replace', startSeq: replaced, endSeq: replaced },
+        sourceEventSeqs: [replaced],
+      })
+      return Promise.resolve(null)
+    })
+    const measure = ctx.tokenMeter.measure.bind(ctx.tokenMeter)
+    vi.spyOn(ctx.tokenMeter, 'measure')
+      .mockImplementationOnce((...args) => measure(...args))
+      .mockImplementationOnce(() => { throw new Error('post-replacement measurement unavailable') })
+
+    expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(false)
+    expect(session.surface.replaceGeneration).toBe(1)
+    expect(logs('compaction.pressure.result')).toEqual([expect.objectContaining({
+      success: false, outcome: 'measurement-failed',
+    })])
+  })
+
+  it('logs missing routed context and a disabled overflow retry budget', async () => {
+    const missingContext = createContext()
+    const missingLogs = captureStructuredLogs(missingContext)
+    void new TestCompactionEngine(missingContext)
+    const headerless = Session.create(brandString<SessionId>('overflow-without-route'))
+    headerless.append('turn/start', { turn: 1 })
+
+    expect(await recover(missingContext, agent(headerless, MODEL), overflow())).toBe(false)
+    expect(missingLogs('compaction.pressure.decision')).toEqual([expect.objectContaining({
+      decision: 'skip', reason: 'missing-routed-context',
+    })])
+
+    const limitedContext = createContext()
+    const limitedLogs = captureStructuredLogs(limitedContext)
+    void new TestCompactionEngine(limitedContext, { maxOverflowRetries: 0 })
+
+    expect(await recover(limitedContext, agent(conversation(2), MODEL), overflow())).toBe(false)
+    expect(limitedLogs('compaction.pressure.decision')).toEqual([expect.objectContaining({
+      decision: 'skip', reason: 'overflow-retry-limit', attempt: 1,
+    })])
   })
 
   it('delegates downstream exactly once when no replacement is available', async () => {
@@ -2464,6 +2958,7 @@ describe('automatic listener and loader composition', () => {
 
   it('preserves the original provider error when recovery throws', async () => {
     const ctx = createContext()
+    const logs = captureStructuredLogs(ctx)
     const warnings: string[] = []
     ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
     const compact = new TestCompactionEngine(ctx)
@@ -2476,6 +2971,9 @@ describe('automatic listener and loader composition', () => {
       code: CONTEXT_WINDOW_EXCEEDED_CODE,
     })
     expect(warnings).toContainEqual(expect.stringContaining('preserving the original request error'))
+    expect(logs('compaction.pressure.result')).toEqual([expect.objectContaining({
+      success: false, outcome: 'recovery-failed',
+    })])
   })
 
   it('delegates once when overflow recovery throws a non-Error value', async () => {
