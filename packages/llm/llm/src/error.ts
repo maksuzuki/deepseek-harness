@@ -45,6 +45,7 @@ export const LLM_FAILURE_CODES = {
   INVALID_REPLAY_STATE: {},
   INVALID_REQUEST: {},
   INVALID_RESPONSE: {},
+  MALFORMED_TOOL_ARGUMENTS: { retryChoice: true },
   MALFORMED_RESPONSE: { retryChoice: true },
   MISSING_CREDENTIAL: {},
   MODEL_SWITCH_COMPACTION_FAILED: {},
@@ -99,6 +100,13 @@ export const ACCOUNT_QUOTA_EXCEEDED_CODE = 'ACCOUNT_QUOTA' satisfies BuiltinLlmF
  * to repeat.
  */
 export const EMPTY_RESPONSE_CODE = 'EMPTY_RESPONSE' satisfies BuiltinLlmFailureCode
+
+/**
+ * Canonical provider-neutral code for completed tool-call arguments that are
+ * not a valid JSON object. Agent-loop recovery observes this failure before
+ * any call from the response can be dispatched.
+ */
+export const MALFORMED_TOOL_ARGUMENTS_CODE = 'MALFORMED_TOOL_ARGUMENTS' satisfies BuiltinLlmFailureCode
 
 /**
  * Canonical provider-neutral code for a credential that was supplied but

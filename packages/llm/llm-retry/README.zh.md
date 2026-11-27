@@ -34,20 +34,30 @@ kind: "package-reference"
 ### 最小配置
 
 ```yaml
-- name: '@deepseek-ai/dsh-llm-deepseek-api-key'
+- name: '@deepseek-ai/dsh-llm-pi-ai'
   config:
-    apiKeyEnv: DEEPSEEK_API_KEY
-    retryPolicy:
-      mode: always
-      backoff:
-        initialDelayMs: 1000
-        maxDelayMs: 30000
-        jitterRatio: 0.2
+    providers:
+      local-model:
+        api: openai-completions
+        baseURL: http://127.0.0.1:8000/v1
+        models:
+          - id: local-model
+        retryPolicy:
+          mode: normal
+          retryableCodes:
+            - EMPTY_RESPONSE
+            - RATE_LIMIT
+            - SERVER
+            - TIMEOUT
+            - TRANSPORT
+            - MALFORMED_TOOL_ARGUMENTS
+          maxRetriesByCode:
+            MALFORMED_TOOL_ARGUMENTS: 1
 
 - name: '@deepseek-ai/dsh-llm-retry'
 ```
 
-省略 `retryPolicy` 时使用 normal mode：对 `EMPTY_RESPONSE`、`RATE_LIMIT`、`SERVER`、`TIMEOUT` 与 `TRANSPORT` 最多重试五次，退避从 500 毫秒到 10 秒、带 10% 抖动。normal mode 可以更改其有界预算、合格 code 与退避；always mode 先询问下游恢复，然后无尝试上限地重试每个模型请求失败，只在成功、取消或插件释放时停止。
+省略 `retryPolicy` 时使用 normal mode：对 `EMPTY_RESPONSE`、`RATE_LIMIT`、`SERVER`、`TIMEOUT` 与 `TRANSPORT` 最多重试五次，退避从 500 毫秒到 10 秒、带 10% 抖动。normal mode 可以更改共享的有界预算、合格 code、退避，并通过 `maxRetriesByCode` 设置独立的逐 code 上限；每个覆盖键还必须出现在 `retryableCodes` 中。always mode 先询问下游恢复，然后无尝试上限地重试每个模型请求失败，只在成功、取消或插件释放时停止。
 
 ### 你可以观察到什么
 
@@ -83,7 +93,7 @@ kind: "package-reference"
 
 恢复监听器在等待投影注册前安装。激活期间到达的失败会先等待读取句柄，再应用提供方策略。注册失败会传播给 agent；等待期间取消或释放插件，不会写入重试记录或发起后续尝试。
 
-失败步骤连同其提供方与解析后的策略一起到达 waterfall。always mode 先结算下游恢复，并遵循下游的 `retry` 决定；normal mode 先检查失败 code 是否合格、预算是否未耗尽。插件计算延迟——有效且在边界内的提供方 `Retry-After`，否则带对称抖动的本地有界指数退避——追加 `llm/retry` 事件，在可取消定时器上等待，追加 `llm/retry-started`，然后返回 `{ kind: 'retry' }`。loop 随后在同一个打开的轮次内重跑失败步骤（仍基于同一份持久历史）。
+失败步骤连同其提供方与解析后的策略一起到达 waterfall。always mode 先结算下游恢复，并遵循下游的 `retry` 决定；normal mode 先检查失败 code 是否合格、其共享或逐 code 预算是否未耗尽。逐 code 预算与同一步骤中的其他失败 code 及无关策略变更相互独立，并在 `step/start` 时重置。插件计算延迟——有效且在边界内的提供方 `Retry-After`，否则带对称抖动的本地有界指数退避——追加 `llm/retry` 事件，在可取消定时器上等待，追加 `llm/retry-started`，然后返回 `{ kind: 'retry' }`。loop 随后在同一个打开的轮次内重跑失败步骤（仍基于同一份持久历史）。
 
 ### Waterfall 组合
 
@@ -144,6 +154,6 @@ kind: "package-reference"
 
 本开发备注是不具权威性的工作上下文：维护者备注与开放问题。已交付的行为与既定理由以上文、包代码和相关 Agent Note 为准。
 
-- 重试编号只在同一提供方与完整策略键的事件间延续，因此限额、code 成员或退避不同的路由替换会开启自己的历史；该键包含每个影响行为的字段，并因资格判断使用集合成员而对 normal mode code 排序。
+- 共享重试编号只在同一提供方与完整策略键的事件间延续，因此共享限额、code 成员或退避不同的路由替换会开启自己的历史。`maxRetriesByCode` 条目改为在 `step/start` 前使用提供方加 code 的键，因此无关策略编辑无法更新该有限预算。
 
 </details>

@@ -42,6 +42,8 @@ export interface NormalRetryPolicyConfig {
   maxRetries?: number
   /** Stable failure codes eligible for this policy. */
   retryableCodes?: string[]
+  /** Per-code retry limits; each listed code must also appear in `retryableCodes`. */
+  maxRetriesByCode?: Record<string, number>
   /** Local exponential-backoff and jitter configuration. */
   backoff?: BackoffConfig
 }
@@ -69,6 +71,8 @@ export interface ResolvedNormalRetryPolicy extends ResolvedRetryBackoff {
   readonly mode: 'normal'
   readonly maxRetries: number
   readonly retryableCodes: readonly string[]
+  /** Immutable per-code limits with budgets independent from the shared limit. */
+  readonly maxRetriesByCode: Readonly<Record<string, number>>
 }
 
 /** Fully resolved unbounded retry policy. */
@@ -94,6 +98,7 @@ const normalPolicySchema: z<NormalRetryPolicyConfig> = z.object({
   // string branch admits codes that other providers raise.
   retryableCodes: z.array(z.union([...RETRY_CODE_CHOICES.map(code => z.const(code)), z.string().min(1)]))
     .min(1).default([...DEFAULT_RETRYABLE_CODES]),
+  maxRetriesByCode: z.dict(z.number().step(1).min(0).max(Number.MAX_SAFE_INTEGER)),
   backoff: backoffSchema,
 })
 
@@ -109,12 +114,12 @@ export const RetryPolicySchema: z<RetryPolicyConfig> = z.union([
 ])
 
 const NORMAL_POLICY_KEYS: ReadonlySet<string> = new Set([
-  'mode', 'maxRetries', 'retryableCodes', 'backoff',
+  'mode', 'maxRetries', 'retryableCodes', 'maxRetriesByCode', 'backoff',
 ])
 // Layered configuration can retain normal-only fields after switching modes;
 // always mode ignores those inactive values while still rejecting unknown keys.
 const ALWAYS_POLICY_KEYS: ReadonlySet<string> = new Set([
-  'mode', 'maxRetries', 'retryableCodes', 'backoff',
+  'mode', 'maxRetries', 'retryableCodes', 'maxRetriesByCode', 'backoff',
 ])
 const BACKOFF_KEYS: ReadonlySet<string> = new Set(['initialDelayMs', 'maxDelayMs', 'jitterRatio'])
 
@@ -161,6 +166,7 @@ export function resolveRetryPolicy(
       mode: 'normal',
       maxRetries: DEFAULT_MAX_RETRIES,
       retryableCodes: DEFAULT_RETRYABLE_CODES,
+      maxRetriesByCode: Object.freeze({}),
       ...resolveBackoff(undefined, `${path}.backoff`),
     })
   }
@@ -170,6 +176,7 @@ export function resolveRetryPolicy(
       validateKeys(config, NORMAL_POLICY_KEYS, path)
       const maxRetries = config.maxRetries ?? DEFAULT_MAX_RETRIES
       const retryableCodes = config.retryableCodes ?? [...DEFAULT_RETRYABLE_CODES]
+      const maxRetriesByCode = config.maxRetriesByCode ?? {}
       if (!Number.isSafeInteger(maxRetries) || maxRetries < 0) {
         throw new Error(`${path}.maxRetries must be a non-negative safe integer`)
       }
@@ -182,10 +189,20 @@ export function resolveRetryPolicy(
       if (new Set(retryableCodes).size !== retryableCodes.length) {
         throw new Error(`${path}.retryableCodes must not contain duplicates`)
       }
+      for (const [code, limit] of Object.entries(maxRetriesByCode)) {
+        if (code.length === 0) throw new Error(`${path}.maxRetriesByCode keys must be non-empty strings`)
+        if (!Number.isSafeInteger(limit) || limit < 0) {
+          throw new Error(`${path}.maxRetriesByCode.${code} must be a non-negative safe integer`)
+        }
+        if (!retryableCodes.includes(code)) {
+          throw new Error(`${path}.maxRetriesByCode.${code} must name a code in retryableCodes`)
+        }
+      }
       return Object.freeze({
         mode: 'normal',
         maxRetries,
         retryableCodes: Object.freeze([...retryableCodes]),
+        maxRetriesByCode: Object.freeze({ ...maxRetriesByCode }),
         ...resolveBackoff(config.backoff, `${path}.backoff`),
       })
     }

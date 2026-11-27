@@ -17,6 +17,7 @@ describe('provider retry policy', () => {
       mode: 'normal',
       maxRetries: 5,
       retryableCodes: ['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT'],
+      maxRetriesByCode: {},
       initialDelayMs: 500,
       maxDelayMs: 10_000,
       jitterRatio: 0.1,
@@ -24,6 +25,7 @@ describe('provider retry policy', () => {
     expect(Object.isFrozen(policy)).toBe(true)
     if (policy.mode !== 'normal') throw new Error('expected normal policy')
     expect(Object.isFrozen(policy.retryableCodes)).toBe(true)
+    expect(Object.isFrozen(policy.maxRetriesByCode)).toBe(true)
   })
 
   it('resolves and detaches a configured normal policy', () => {
@@ -46,10 +48,27 @@ describe('provider retry policy', () => {
       mode: 'normal',
       maxRetries: 4,
       retryableCodes: ['BUSY'],
+      maxRetriesByCode: {},
       initialDelayMs: 25,
       maxDelayMs: 100,
       jitterRatio: 0,
     })
+  })
+
+  it('resolves detached per-code limits for eligible codes', () => {
+    const maxRetriesByCode = { MALFORMED_TOOL_ARGUMENTS: 1 }
+    const policy = resolveRetryPolicy({
+      mode: 'normal',
+      retryableCodes: ['SERVER', 'MALFORMED_TOOL_ARGUMENTS'],
+      maxRetriesByCode,
+    }, 'provider.retryPolicy')
+    maxRetriesByCode.MALFORMED_TOOL_ARGUMENTS = 4
+
+    expect(policy).toMatchObject({
+      maxRetries: 5,
+      maxRetriesByCode: { MALFORMED_TOOL_ARGUMENTS: 1 },
+    })
+    expect(policy.mode === 'normal' && Object.isFrozen(policy.maxRetriesByCode)).toBe(true)
   })
 
   it('resolves always mode with default backoff', () => {
@@ -91,6 +110,10 @@ describe('provider retry policy', () => {
     [{ mode: 'normal', retryableCodes: ['SERVER', 'SERVER'] }, /duplicates/],
     [{ mode: 'normal', retryableCodes: [''] }, /non-empty strings/],
     [{ mode: 'normal', retryableCodes: [429] }, /non-empty strings/],
+    [{ mode: 'normal', retryableCodes: ['SERVER'], maxRetriesByCode: { SERVER: -1 } }, /maxRetriesByCode\.SERVER/],
+    [{ mode: 'normal', retryableCodes: ['SERVER'], maxRetriesByCode: { SERVER: 1.5 } }, /maxRetriesByCode\.SERVER/],
+    [{ mode: 'normal', retryableCodes: ['SERVER'], maxRetriesByCode: { AUTH: 1 } }, /must name a code in retryableCodes/],
+    [{ mode: 'normal', retryableCodes: ['SERVER'], maxRetriesByCode: { '': 1 } }, /keys must be non-empty/],
     [{ mode: 'normal', maxRetires: 1 }, /unknown key "maxRetires"/],
     [{ mode: 'always', backoff: { initialDelay: 1 } }, /unknown key "initialDelay"/],
     [{ mode: 'sometimes' }, /mode must be "normal" or "always"/],
@@ -133,6 +156,7 @@ describe('provider retry policy', () => {
     expect(() => restored({ mode: 'normal', retryableCodes: [''] })).toThrow()
     // Being a choice does not make a code retried by default.
     expect(RETRY_CODE_CHOICES).toContain('STREAM_CLOSED')
+    expect(RETRY_CODE_CHOICES).toContain('MALFORMED_TOOL_ARGUMENTS')
     const defaults = resolveRetryPolicy(undefined, 'provider.retryPolicy')
     expect(defaults.mode === 'normal' ? defaults.retryableCodes : []).not.toContain('STREAM_CLOSED')
   })

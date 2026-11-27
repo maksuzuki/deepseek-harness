@@ -59,6 +59,15 @@ Each profile may set a `retryPolicy`; omission uses normal mode with five retrie
         retryPolicy:
           mode: normal
           maxRetries: 3
+          retryableCodes:
+            - EMPTY_RESPONSE
+            - RATE_LIMIT
+            - SERVER
+            - TIMEOUT
+            - TRANSPORT
+            - MALFORMED_TOOL_ARGUMENTS
+          maxRetriesByCode:
+            MALFORMED_TOOL_ARGUMENTS: 1
       anthropic:
         apiKeyEnv: ANTHROPIC_API_KEY
         models:
@@ -294,7 +303,7 @@ Later system messages supplied to the adapter stay out of the initial prompt, pr
 
 #### What the model sees
 
-pi-ai events become harness reasoning, text, tool-call, usage, and finish chunks. The adapter passes parsed tool arguments to the harness as raw JSON strings. If pi-ai reports invalid completed arguments, the attempt fails with `MALFORMED_RESPONSE` before tool dispatch and publishes no successful replay state. The default normal retry policy excludes this code; an explicit retry policy still controls recovery.
+pi-ai events become harness reasoning, text, tool-call, usage, and finish chunks. The adapter passes parsed tool arguments to the harness as raw JSON strings. If pi-ai reports invalid completed arguments, the attempt fails with `MALFORMED_TOOL_ARGUMENTS` before any call from that response is dispatched and publishes no successful replay state. The default normal retry policy excludes this code; adding it to `retryableCodes` with `maxRetriesByCode.MALFORMED_TOOL_ARGUMENTS: 1` permits one agent-loop retry without reducing the shared limit for transport failures. Direct `ctx.llm.stream()` consumers remain single-attempt.
 
 #### Token effect
 

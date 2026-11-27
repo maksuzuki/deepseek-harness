@@ -64,7 +64,18 @@ function localDelay(config: ResolvedRetryPolicy, retry: number, random: () => nu
   return Math.min(exponential * jitter, config.maxDelayMs)
 }
 
-function retryPolicyKey(policy: ResolvedRetryPolicy): string {
+function codeRetryLimit(policy: ResolvedRetryPolicy, failureCode: string): number | undefined {
+  return policy.mode === 'normal' && Object.hasOwn(policy.maxRetriesByCode, failureCode)
+    ? policy.maxRetriesByCode[failureCode]
+    : undefined
+}
+
+function retryPolicyKey(policy: ResolvedRetryPolicy, failureCode: string): string {
+  if (codeRetryLimit(policy, failureCode) !== undefined) {
+    // A per-code budget survives unrelated policy changes during the open step.
+    // The projection still clears it at the next step/start event.
+    return JSON.stringify([policy.mode, 'code', failureCode])
+  }
   return policy.mode === 'always'
     ? JSON.stringify([policy.mode, policy.initialDelayMs, policy.maxDelayMs, policy.jitterRatio])
     : JSON.stringify([
@@ -152,6 +163,7 @@ export async function apply(ctx: Context, config: Config = {}, internals: RetryI
     provider: string,
     policy: ResolvedRetryPolicy,
     policyKey: string,
+    maxRetries: number | undefined,
     retry: number,
     retryId: RetryId,
     delayMs: number,
@@ -167,7 +179,7 @@ export async function apply(ctx: Context, config: Config = {}, internals: RetryI
         mode: policy.mode,
         policyKey,
         retry,
-        maxRetries: policy.maxRetries,
+        maxRetries: maxRetries ?? policy.maxRetries,
         delayMs,
         failure,
       }
@@ -214,11 +226,14 @@ export async function apply(ctx: Context, config: Config = {}, internals: RetryI
       return next()
     }
 
-    const policyKey = retryPolicyKey(policy)
+    const maxRetries = policy.mode === 'normal'
+      ? codeRetryLimit(policy, failure.code) ?? policy.maxRetries
+      : undefined
+    const policyKey = retryPolicyKey(policy, failure.code)
     const retryState = llmRetryProjectionHandle.stateOf(agent.session)
     const previous = retryState[retryStateKey(provider, policyKey)]
     const previousRetry = previous?.retry ?? 0
-    if (policy.mode === 'normal' && previousRetry >= policy.maxRetries) return next()
+    if (maxRetries !== undefined && previousRetry >= maxRetries) return next()
     const retry = previousRetry + 1
     const retryId = previous?.retryId ?? brandString<RetryId>(randomUUID())
     let delayMs: number
@@ -235,7 +250,7 @@ export async function apply(ctx: Context, config: Config = {}, internals: RetryI
       delayMs = localDelay(policy, retry, random)
     }
 
-    return backoff(agent, turn, step, failure, provider, policy, policyKey, retry, retryId, delayMs, signal)
+    return backoff(agent, turn, step, failure, provider, policy, policyKey, maxRetries, retry, retryId, delayMs, signal)
   }
 
   const disposeListener = ctx.on('agent/request-error', (

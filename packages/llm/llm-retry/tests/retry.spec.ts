@@ -3,7 +3,7 @@ import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Fiber } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import LlmRuntime, { createUserMessage, type ToolCallId, EMPTY_RESPONSE_CODE, LlmAdapter, LlmError, expandAssistantStream, resolveRetryPolicy  } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, type ToolCallId, EMPTY_RESPONSE_CODE, LlmAdapter, LlmError, MALFORMED_TOOL_ARGUMENTS_CODE, expandAssistantStream, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import type {
   AlwaysRetryPolicyConfig,
   BackoffConfig,
@@ -156,6 +156,14 @@ function alwaysConfig(backoff: BackoffConfig = {}): AlwaysRetryPolicyConfig {
   }
 }
 
+function malformedToolArgumentsConfig(): NormalRetryPolicyConfig {
+  return normalConfig({
+    retryableCodes: [EMPTY_RESPONSE_CODE, 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT', MALFORMED_TOOL_ARGUMENTS_CODE],
+    maxRetriesByCode: { [MALFORMED_TOOL_ARGUMENTS_CODE]: 1 },
+    backoff: { initialDelayMs: 1, maxDelayMs: 1 },
+  })
+}
+
 function waitForIdle(_ctx: Context, agent: Agent): Promise<void> {
   return agent.whenIdle()
 }
@@ -204,6 +212,204 @@ describe('retry projection', () => {
 })
 
 describe('provider-routed retry policy', () => {
+  it('recovers one malformed tool-argument attempt before dispatch and completes the turn', async () => {
+    vi.useFakeTimers()
+    const validCallId = brandString<ToolCallId>('valid-after-retry')
+    const malformed = new LlmError(
+      'Tool call "web_search": Unexpected end of JSON input\nReceived arguments: {"queries":',
+      MALFORMED_TOOL_ARGUMENTS_CODE,
+    )
+    const adapter = new ScriptedAdapter([
+      partialToolFailure(malformed),
+      [
+        { type: 'block-start', index: 0, blockType: 'tool-call' },
+        { type: 'block-end', index: 0, block: { type: 'tool-call', id: validCallId, name: 'danger', arguments: '{}' } },
+        { type: 'finish', reason: { kind: 'tool-calls' } },
+      ],
+      textResponse('recovered'),
+    ])
+    ;({ ctx: context } = await harness(adapter, { mock: malformedToolArgumentsConfig() }))
+    let toolExecutions = 0
+    context.tools.register(defineContentToolFixture({
+      name: 'danger', description: 'count dispatches', parameters: {},
+      async execute() {
+        toolExecutions += 1
+        return [{ type: 'text', text: 'executed' }]
+      },
+    }))
+    const agent = await context.agentLoop.create(brandString<SessionId>('retry-malformed-tool-arguments'), {
+      provider: 'mock', model: 'mock',
+    })
+    const scheduled = waitForRetry(context, agent, 1)
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'search' }], source: { kind: 'user' } }))
+    const retry = await scheduled
+    expect(retry.data).toMatchObject({
+      turn: 1,
+      step: 1,
+      retry: 1,
+      maxRetries: 1,
+      policyKey: '["normal","code","MALFORMED_TOOL_ARGUMENTS"]',
+      failure: { code: MALFORMED_TOOL_ARGUMENTS_CODE },
+    })
+    expect(toolExecutions).toBe(0)
+
+    const idle = waitForIdle(context, agent)
+    await vi.advanceTimersByTimeAsync(1)
+    await idle
+
+    expect(adapter.requests).toHaveLength(3)
+    expect(adapter.requests[1]?.messages.some(message => message.role === 'assistant')).toBe(false)
+    expect(toolExecutions).toBe(1)
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'tool/call').map(event => event.data.callId))
+      .toEqual([validCallId])
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'assistant/attempt')).toHaveLength(1)
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'llm/retry-started')).toHaveLength(1)
+    expect(agent.session.deriveMessages().at(-1)).toMatchObject({
+      role: 'assistant', content: [{ type: 'text', text: 'recovered' }],
+    })
+  })
+
+  it('stops after one malformed tool-argument retry without dispatching any call', async () => {
+    vi.useFakeTimers()
+    const malformed = new LlmError('Received arguments: {"queries":', MALFORMED_TOOL_ARGUMENTS_CODE)
+    const adapter = new ScriptedAdapter([
+      partialToolFailure(malformed),
+      partialToolFailure(malformed),
+    ])
+    ;({ ctx: context } = await harness(adapter, { mock: malformedToolArgumentsConfig() }))
+    let toolExecutions = 0
+    context.tools.register(defineContentToolFixture({
+      name: 'danger', description: 'must remain undispatched', parameters: {},
+      async execute() { toolExecutions += 1; return [{ type: 'text', text: 'unexpected' }] },
+    }))
+    const agent = await context.agentLoop.create(brandString<SessionId>('retry-malformed-tool-arguments-exhausted'), {
+      provider: 'mock', model: 'mock',
+    })
+    const scheduled = waitForRetry(context, agent, 1)
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'search' }], source: { kind: 'user' } }))
+    await scheduled
+    const idle = waitForIdle(context, agent)
+    await vi.advanceTimersByTimeAsync(1)
+    await idle
+
+    expect(adapter.requests).toHaveLength(2)
+    expect(toolExecutions).toBe(0)
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'tool/call' || event.type === 'tool/result')).toEqual([])
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'llm/retry')).toHaveLength(1)
+    expect(agent.session.snapshotEvents().at(-1)).toMatchObject({
+      type: 'turn/end',
+      data: { reason: { kind: 'error', error: { code: MALFORMED_TOOL_ARGUMENTS_CODE } } },
+    })
+  })
+
+  it('keeps the malformed budget separate from other retryable failures in the same step', async () => {
+    vi.useFakeTimers()
+    const malformed = new LlmError('Received arguments: {"queries":', MALFORMED_TOOL_ARGUMENTS_CODE)
+    const adapter = new ScriptedAdapter([
+      new LlmError('temporary outage', 'SERVER'),
+      malformed,
+      malformed,
+    ])
+    ;({ ctx: context } = await harness(adapter, { mock: malformedToolArgumentsConfig() }))
+    const agent = await context.agentLoop.create(brandString<SessionId>('retry-malformed-separate-budget'), {
+      provider: 'mock', model: 'mock',
+    })
+    const serverRetry = waitForRetry(context, agent, 1)
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'search' }], source: { kind: 'user' } }))
+    await serverRetry
+    const malformedRetry = waitForRetry(context, agent, 1)
+    await vi.advanceTimersByTimeAsync(1)
+    await malformedRetry
+    const idle = waitForIdle(context, agent)
+    await vi.advanceTimersByTimeAsync(1)
+    await idle
+
+    expect(adapter.requests).toHaveLength(3)
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'llm/retry').map(event => ({
+      code: event.data.failure.code,
+      retry: event.data.retry,
+      maxRetries: event.data.mode === 'normal' ? event.data.maxRetries : undefined,
+    }))).toEqual([
+      { code: 'SERVER', retry: 1, maxRetries: 2 },
+      { code: MALFORMED_TOOL_ARGUMENTS_CODE, retry: 1, maxRetries: 1 },
+    ])
+  })
+
+  it('does not reset the malformed budget when its provider policy changes during the step', async () => {
+    vi.useFakeTimers()
+    const malformed = new LlmError('Received arguments: {"queries":', MALFORMED_TOOL_ARGUMENTS_CODE)
+    const entries: ScriptEntry[] = []
+    const adapter = new ScriptedAdapter(entries)
+    entries.push((async function * (): AsyncGenerator<StreamChunk> {
+      adapter.configureRetryPolicies({
+        mock: {
+          ...malformedToolArgumentsConfig(),
+          backoff: { initialDelayMs: 2, maxDelayMs: 2, jitterRatio: 0 },
+        },
+      })
+      throw malformed
+    })(), malformed)
+    ;({ ctx: context } = await harness(adapter, { mock: malformedToolArgumentsConfig() }))
+    const agent = await context.agentLoop.create(brandString<SessionId>('retry-malformed-policy-change'), {
+      provider: 'mock', model: 'mock',
+    })
+    const scheduled = waitForRetry(context, agent, 1)
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'search' }], source: { kind: 'user' } }))
+    await scheduled
+    const idle = waitForIdle(context, agent)
+    await vi.advanceTimersByTimeAsync(1)
+    await idle
+
+    expect(adapter.requests).toHaveLength(2)
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'llm/retry')).toHaveLength(1)
+  })
+
+  it('resets the malformed budget at the next step without rerunning the completed tool', async () => {
+    vi.useFakeTimers()
+    const malformed = new LlmError('Received arguments: {"queries":', MALFORMED_TOOL_ARGUMENTS_CODE)
+    const callId = brandString<ToolCallId>('completed-once')
+    const adapter = new ScriptedAdapter([
+      partialToolFailure(malformed),
+      [
+        { type: 'block-start', index: 0, blockType: 'tool-call' },
+        { type: 'block-end', index: 0, block: { type: 'tool-call', id: callId, name: 'danger', arguments: '{}' } },
+        { type: 'finish', reason: { kind: 'tool-calls' } },
+      ],
+      partialToolFailure(malformed),
+      textResponse('done'),
+    ])
+    ;({ ctx: context } = await harness(adapter, { mock: malformedToolArgumentsConfig() }))
+    let toolExecutions = 0
+    context.tools.register(defineContentToolFixture({
+      name: 'danger', description: 'complete once', parameters: {},
+      async execute() { toolExecutions += 1; return [{ type: 'text', text: 'executed' }] },
+    }))
+    const agent = await context.agentLoop.create(brandString<SessionId>('retry-malformed-next-step'), {
+      provider: 'mock', model: 'mock',
+    })
+    const firstRetry = waitForRetry(context, agent, 1)
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'search' }], source: { kind: 'user' } }))
+    await firstRetry
+    const secondRetry = waitForRetry(context, agent, 1)
+    await vi.advanceTimersByTimeAsync(1)
+    await secondRetry
+    const idle = waitForIdle(context, agent)
+    await vi.advanceTimersByTimeAsync(1)
+    await idle
+
+    expect(adapter.requests).toHaveLength(4)
+    expect(toolExecutions).toBe(1)
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'llm/retry').map(event => ({
+      step: event.data.step,
+      retry: event.data.retry,
+    }))).toEqual([{ step: 1, retry: 1 }, { step: 2, retry: 1 }])
+  })
+
   it('records the scheduled delay before retrying the request', async () => {
     vi.useFakeTimers()
     const adapter = new ScriptedAdapter([

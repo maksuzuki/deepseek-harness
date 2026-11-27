@@ -23,10 +23,11 @@ const RetryPolicy = Schema.union([
     mode: Schema.const('normal').required(),
     maxRetries: Schema.number().step(1).min(0).max(Number.MAX_SAFE_INTEGER).default(5),
     retryableCodes: Schema.array(Schema.union([
-      ...['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT', 'STREAM_CLOSED', 'MALFORMED_RESPONSE', 'QUOTA']
+      ...['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT', 'STREAM_CLOSED', 'MALFORMED_TOOL_ARGUMENTS', 'MALFORMED_RESPONSE', 'QUOTA']
         .map(code => Schema.const(code)),
       Schema.string().min(1),
     ])).min(1).default(['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT']),
+    maxRetriesByCode: Schema.dict(Schema.number().step(1).min(0).max(Number.MAX_SAFE_INTEGER)),
     backoff,
   }),
   Schema.object({ mode: Schema.const('always').required(), backoff }),
@@ -82,6 +83,7 @@ const CODE_LABELS: Record<string, string> = {
   TIMEOUT: en.retryCodeTimeout,
   TRANSPORT: en.retryCodeTransport,
   STREAM_CLOSED: en.retryCodeStreamClosed,
+  MALFORMED_TOOL_ARGUMENTS: en.retryCodeMalformedToolArguments,
 }
 const customCode = () => screen.getByRole<HTMLInputElement>('textbox', { name: en.retryCodeCustom })
 const addCode = () => screen.getByRole<HTMLButtonElement>('button', { name: en.retryCodeAdd })
@@ -117,6 +119,45 @@ describe('retry policy fields', () => {
       { op: 'set', path: ['retryPolicy', 'retryableCodes'], value: ['RATE_LIMIT', 'SERVER'] },
       { op: 'set', path: ['retryPolicy', 'backoff', 'jitterRatio'], value: 0.25 },
     ], 3)
+  })
+
+  it('writes a per-code retry limit for an eligible error code', async () => {
+    const { writeSettings, onClose } = setup(deepSeekNamespace())
+    fireEvent.change(mode(), { target: { value: 'normal' } })
+    fireEvent.click(code_('MALFORMED_TOOL_ARGUMENTS'))
+    fireEvent.click(screen.getByText(en.retryCodeLimits))
+    const limit = screen.getAllByLabelText<HTMLInputElement>(en.retryCodeMalformedToolArguments)
+      .find(element => element.type === 'text')!
+    expect(limit.placeholder).toBe('5')
+    fireEvent.change(limit, { target: { value: '1' } })
+    fireEvent.click(apply())
+
+    await waitFor(() => { expect(onClose).toHaveBeenCalledWith(true) })
+    expect(writeSettings).toHaveBeenCalledWith('llm-deepseek', [
+      { op: 'set', path: ['retryPolicy', 'mode'], value: 'normal' },
+      {
+        op: 'set',
+        path: ['retryPolicy', 'retryableCodes'],
+        value: ['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT', 'MALFORMED_TOOL_ARGUMENTS'],
+      },
+      { op: 'set', path: ['retryPolicy', 'maxRetriesByCode', 'MALFORMED_TOOL_ARGUMENTS'], value: 1 },
+    ], 3)
+  })
+
+  it('removes a per-code limit when its eligible code is unchecked', async () => {
+    const retryableCodes = ['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT', 'MALFORMED_TOOL_ARGUMENTS']
+    const { writeSettings } = setup(deepSeekNamespace({ user: { retryPolicy: {
+      mode: 'normal', retryableCodes, maxRetriesByCode: { MALFORMED_TOOL_ARGUMENTS: 1 },
+    } } }))
+
+    fireEvent.click(code_('MALFORMED_TOOL_ARGUMENTS'))
+    fireEvent.click(apply())
+
+    await waitFor(() => { expect(writeSettings).toHaveBeenCalled() })
+    expect(writeSettings.mock.calls[0]?.[1]).toEqual([
+      { op: 'unset', path: ['retryPolicy', 'retryableCodes'] },
+      { op: 'unset', path: ['retryPolicy', 'maxRetriesByCode'] },
+    ])
   })
 
   it.each([
@@ -328,7 +369,7 @@ describe('retry policy fields', () => {
     fireEvent.change(customCode(), { target: { value: '   ' } })
     expect(addCode().disabled).toBe(true)
     fireEvent.keyDown(customCode(), { key: 'Enter' })
-    expect(screen.getAllByRole('checkbox')).toHaveLength(8)
+    expect(screen.getAllByRole('checkbox')).toHaveLength(9)
     fireEvent.change(customCode(), { target: { value: '  Overloaded_529 ' } })
     fireEvent.click(addCode())
     expect(customCode().value).toBe('')

@@ -59,6 +59,15 @@ pi-ai 的已安装目录是它所随附的每个提供方的权威答案，被�
         retryPolicy:
           mode: normal
           maxRetries: 3
+          retryableCodes:
+            - EMPTY_RESPONSE
+            - RATE_LIMIT
+            - SERVER
+            - TIMEOUT
+            - TRANSPORT
+            - MALFORMED_TOOL_ARGUMENTS
+          maxRetriesByCode:
+            MALFORMED_TOOL_ARGUMENTS: 1
       anthropic:
         apiKeyEnv: ANTHROPIC_API_KEY
         models:
@@ -294,7 +303,7 @@ Anthropic 可以将每个已签名 thinking 块绑定到生成它时的请求前
 
 #### 模型看到什么
 
-pi-ai 事件变成 harness 的推理、文本、工具调用、用量与 finish 分片。适配器把解析后的工具参数以原始 JSON 字符串传给 harness。如果 pi-ai 报告已完成调用的参数无效，本次尝试会在分派工具前以 `MALFORMED_RESPONSE` 失败，且不发布成功的回放状态。默认的普通重试策略不重试此错误码；显式重试策略仍然控制恢复。
+pi-ai 事件变成 harness 的推理、文本、工具调用、用量与 finish 分片。适配器把解析后的工具参数以原始 JSON 字符串传给 harness。如果 pi-ai 报告已完成调用的参数无效，本次尝试会在分派该响应中的任何调用前以 `MALFORMED_TOOL_ARGUMENTS` 失败，且不发布成功的回放状态。默认的普通重试策略不重试此错误码；把它加入 `retryableCodes` 并设置 `maxRetriesByCode.MALFORMED_TOOL_ARGUMENTS: 1`，可允许 agent loop 重试一次，而不降低传输失败的共享上限。直接使用 `ctx.llm.stream()` 的消费方仍只尝试一次。
 
 #### Token 影响
 

@@ -34,20 +34,30 @@ Choose it when a composition runs the agent loop and wants durable request recov
 ### Minimal configuration
 
 ```yaml
-- name: '@deepseek-ai/dsh-llm-deepseek-api-key'
+- name: '@deepseek-ai/dsh-llm-pi-ai'
   config:
-    apiKeyEnv: DEEPSEEK_API_KEY
-    retryPolicy:
-      mode: always
-      backoff:
-        initialDelayMs: 1000
-        maxDelayMs: 30000
-        jitterRatio: 0.2
+    providers:
+      local-model:
+        api: openai-completions
+        baseURL: http://127.0.0.1:8000/v1
+        models:
+          - id: local-model
+        retryPolicy:
+          mode: normal
+          retryableCodes:
+            - EMPTY_RESPONSE
+            - RATE_LIMIT
+            - SERVER
+            - TIMEOUT
+            - TRANSPORT
+            - MALFORMED_TOOL_ARGUMENTS
+          maxRetriesByCode:
+            MALFORMED_TOOL_ARGUMENTS: 1
 
 - name: '@deepseek-ai/dsh-llm-retry'
 ```
 
-Omission of `retryPolicy` uses normal mode: five retries for `EMPTY_RESPONSE`, `RATE_LIMIT`, `SERVER`, `TIMEOUT`, and `TRANSPORT`, with bounded exponential backoff from 500 ms to 10 seconds and 10 percent jitter. Normal mode can change its finite budget, eligible codes, and backoff; always mode asks downstream recovery first, then retries every model-request failure without an attempt limit, stopping only on success, cancellation, or plugin disposal.
+Omission of `retryPolicy` uses normal mode: five retries for `EMPTY_RESPONSE`, `RATE_LIMIT`, `SERVER`, `TIMEOUT`, and `TRANSPORT`, with bounded exponential backoff from 500 ms to 10 seconds and 10 percent jitter. Normal mode can change its shared finite budget, eligible codes, backoff, and independent per-code limits through `maxRetriesByCode`; every override key must also appear in `retryableCodes`. Always mode asks downstream recovery first, then retries every model-request failure without an attempt limit, stopping only on success, cancellation, or plugin disposal.
 
 ### What you can observe
 
@@ -83,7 +93,7 @@ The executor is built on one rule: **durable before wait, open-step boundaries.*
 
 The recovery listener is installed before awaiting projection registration. Failures arriving during activation wait for the reader before applying the provider policy. Registration failure propagates to the agent; cancellation or plugin disposal while waiting prevents retry records and further attempts.
 
-A failed step arrives on the waterfall with its provider and resolved policy. Always mode settles downstream recovery first and honors a downstream `retry` decision; normal mode first checks that the failure code is eligible and the budget is not exhausted. The plugin computes the delay — provider `Retry-After` when valid and within bounds, otherwise local bounded exponential backoff with symmetric jitter — appends the `llm/retry` event, waits on a cancellable timer, appends `llm/retry-started`, and returns `{ kind: 'retry' }`. The loop then re-runs the failed step inside the same open turn over the same durable history.
+A failed step arrives on the waterfall with its provider and resolved policy. Always mode settles downstream recovery first and honors a downstream `retry` decision; normal mode first checks that the failure code is eligible and its shared or code-specific budget is not exhausted. A code-specific budget is independent from other failure codes and unrelated policy changes in the same step, and `step/start` resets it. The plugin computes the delay — provider `Retry-After` when valid and within bounds, otherwise local bounded exponential backoff with symmetric jitter — appends the `llm/retry` event, waits on a cancellable timer, appends `llm/retry-started`, and returns `{ kind: 'retry' }`. The loop then re-runs the failed step inside the same open turn over the same durable history.
 
 ### Waterfall composition
 
@@ -144,6 +154,6 @@ These limits define where the executor stops and future work begins. They are cu
 
 This Dev Note is non-authoritative working context: notes for maintainers and open questions. Shipped behavior and accepted rationale live in the sections above, the package code, and the linked Agent Notes.
 
-- Retry numbers continue only across events with the same provider and complete policy key, so a route replacement with different limits, code membership, or backoff starts its own history; the key includes every behavior-affecting field and sorts normal-mode codes because eligibility uses set membership.
+- Shared retry numbers continue only across events with the same provider and complete policy key, so a route replacement with different shared limits, code membership, or backoff starts its own history. A `maxRetriesByCode` entry instead uses a provider-and-code key until `step/start`, so unrelated policy edits cannot renew that finite budget.
 
 </details>

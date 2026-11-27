@@ -24,6 +24,7 @@ const LABELS: ReadonlyMap<string, ModelsKey> = new Map([
   ['always', 'retryModeAlways'],
   ['maxRetries', 'retryMaxRetries'],
   ['retryableCodes', 'retryCodes'],
+  ['maxRetriesByCode', 'retryCodeLimits'],
   ['backoff', 'retryBackoff'],
   ['initialDelayMs', 'retryInitialDelay'],
   ['maxDelayMs', 'retryMaxDelay'],
@@ -41,6 +42,7 @@ const CODE_LABELS: ReadonlyMap<string, ModelsKey> = new Map([
   ['TIMEOUT', 'retryCodeTimeout'],
   ['TRANSPORT', 'retryCodeTransport'],
   ['STREAM_CLOSED', 'retryCodeStreamClosed'],
+  ['MALFORMED_TOOL_ARGUMENTS', 'retryCodeMalformedToolArguments'],
   ['MALFORMED_RESPONSE', 'retryCodeMalformedResponse'],
   ['QUOTA', 'retryCodeQuota'],
 ])
@@ -187,6 +189,14 @@ export function retryPolicyFailure(
         if (stored === undefined) continue
         if (schema.validate(field, stored) !== undefined) return { message: t('retryCodesInvalid'), path }
         if (Array.isArray(stored) && new Set(stored).size !== stored.length) return { message: t('retryCodesDuplicate'), path }
+      } else if (field.type === 'dict') {
+        const stored = schema.getPath(policy, path)
+        if (stored === undefined) continue
+        if (!isRecord(stored) || field.inner === undefined) return whole()
+        for (const [entry, value] of Object.entries(stored)) {
+          const message = numberFailure(field.inner, value, t)
+          if (message !== undefined) return { message, path: [...path, entry] }
+        }
       }
     }
     return undefined
@@ -232,10 +242,10 @@ function withField(policy: Record<string, unknown>, path: readonly string[], val
   /* v8 ignore next -- paths come from schema fields and are never empty */
   if (key === undefined) return policy
   const result = { ...policy }
-  const prior = result[key]
+  const prior = Object.hasOwn(result, key) ? result[key] : undefined
   const next = rest.length === 0 ? value : withField(isRecord(prior) ? prior : {}, rest, value)
   if (next === undefined || (isRecord(next) && Object.keys(next).length === 0)) Reflect.deleteProperty(result, key)
-  else result[key] = next
+  else Object.defineProperty(result, key, { value: next, enumerable: true, writable: true, configurable: true })
   return result
 }
 
@@ -259,19 +269,26 @@ export function RetryPolicyEditor(props: RetryPolicyEditorProps): ReactNode {
     return labelKey === undefined ? key : t(labelKey)
   }
   const invalidAt = (path: readonly string[]): boolean => failure?.path?.join('.') === path.join('.')
-  const numberField = (root: SchemaNode, path: readonly string[], node: SchemaNode, className: string | undefined): ReactNode => {
+  const numberField = (
+    root: SchemaNode,
+    path: readonly string[],
+    node: SchemaNode,
+    className: string | undefined,
+    placeholder?: unknown,
+    fieldLabel?: string,
+  ): ReactNode => {
     const id = path.join('.')
     const invalid = invalidAt(path)
     const storedValue = fieldAt(current, path)
     return (
       <label key={id} className={className}>
-        <span className={styles['modelFieldLabel']}>{label(path[path.length - 1] as string)}</span>
+        <span className={styles['modelFieldLabel']}>{fieldLabel ?? label(path[path.length - 1] as string)}</span>
         <input
           className={styles['input']}
           type="text"
           inputMode={node.meta.step === 1 ? 'numeric' : 'decimal'}
           value={texts[id] ?? textOf(storedValue)}
-          placeholder={textOf(defaults.value(root, path))}
+          placeholder={textOf(placeholder ?? defaults.value(root, path))}
           aria-invalid={invalid}
           aria-describedby={invalid ? props.failureId : undefined}
           disabled={disabled}
@@ -285,6 +302,10 @@ export function RetryPolicyEditor(props: RetryPolicyEditorProps): ReactNode {
       </label>
     )
   }
+  const codeLabel = (code: string): string => {
+    const labelKey = CODE_LABELS.get(code)
+    return labelKey === undefined ? code : t(labelKey)
+  }
   const codesField = (root: SchemaNode, path: readonly string[], node: SchemaNode): ReactNode => {
     const id = path.join('.')
     const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter(code => typeof code === 'string') : []
@@ -297,7 +318,16 @@ export function RetryPolicyEditor(props: RetryPolicyEditorProps): ReactNode {
     const select = (next: readonly string[]): void => {
       // Selecting exactly the inherited codes keeps the field inherited.
       const inherits = next.length === inherited.length && next.every(value => inherited.includes(value))
-      props.onChange(withField(current, path, inherits ? undefined : [...next]))
+      const removed = selected.filter(code => !next.includes(code))
+      let updated = withField(current, path, inherits ? undefined : [...next])
+      for (const code of removed) {
+        updated = withField(updated, [...path.slice(0, -1), 'maxRetriesByCode', code], undefined)
+      }
+      if (removed.length > 0) {
+        const removedIds = new Set(removed.map(code => [...path.slice(0, -1), 'maxRetriesByCode', code].join('.')))
+        setTexts(previous => Object.fromEntries(Object.entries(previous).filter(([key]) => !removedIds.has(key))))
+      }
+      props.onChange(updated)
     }
     const draftCode = (texts[id] ?? '').trim()
     const add = (): void => {
@@ -316,12 +346,11 @@ export function RetryPolicyEditor(props: RetryPolicyEditorProps): ReactNode {
         <legend className={styles['modelFieldLabel']}>{label(path[path.length - 1] as string)}</legend>
         <div className={styles['retryCodeChoices']}>
           {choices.map((code) => {
-            const labelKey = CODE_LABELS.get(code)
             return (
               <Checkbox
                 key={code}
                 // A code the list does not name shows verbatim.
-                label={labelKey === undefined ? code : t(labelKey)}
+                label={codeLabel(code)}
                 checked={selected.includes(code)}
                 disabled={disabled || (selected.length === 1 && selected.includes(code))}
                 onChange={(checked) => {
@@ -370,6 +399,30 @@ export function RetryPolicyEditor(props: RetryPolicyEditorProps): ReactNode {
       return numberField(root, path, node, base.length === 0 ? `${styles['modelField']} ${styles['retryCount']}` : styles['modelField'])
     }
     if (node.type === 'array') return codesField(root, path, node)
+    if (node.type === 'dict' && node.inner?.type === 'number') {
+      const inner = node.inner
+      const selected = fieldAt(current, [...base, 'retryableCodes'])
+      const inheritedCodes = defaults.value(root, [...base, 'retryableCodes'])
+      const codes = (Array.isArray(selected) ? selected : Array.isArray(inheritedCodes) ? inheritedCodes : [])
+        .filter((code): code is string => typeof code === 'string')
+      const inheritedLimit = fieldAt(current, [...base, 'maxRetries'])
+        ?? defaults.value(root, [...base, 'maxRetries'])
+      return (
+        <details key={key} className={styles['retryFold']} open={openFolds.has(key)}>
+          <summary className={styles['customizedSummary']}>{label(key)}</summary>
+          <div className={styles['retryBackoff']}>
+            {codes.map(code => numberField(
+              root,
+              [...path, code],
+              inner,
+              styles['modelField'],
+              inheritedLimit,
+              codeLabel(code),
+            ))}
+          </div>
+        </details>
+      )
+    }
     if (node.type === 'object') {
       return (
         <details key={key} className={styles['retryFold']} open={openFolds.has(key)}>
